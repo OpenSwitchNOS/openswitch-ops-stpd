@@ -46,10 +46,9 @@
 #include "vtysh_ovsdb_mstp_context.h"
 
 extern struct ovsdb_idl *idl;
-bool init_required = true;
 
 VLOG_DEFINE_THIS_MODULE(vtysh_mstp_cli);
-
+#if 0
 /*-----------------------------------------------------------------------------
  | Function:        mstp_util_add_default_ports_to_cist
  | Responsibility:  Add all L2 VLANs to common instance table
@@ -225,7 +224,7 @@ mstp_util_set_defaults() {
 
     END_DB_TXN(txn);
 }
-
+#endif /*0*/
 /*-----------------------------------------------------------------------------
  | Function:        mstp_util_get_mstid_for_vlanID
  | Responsibility:  Utility API to get the instance ID to which the VLAN belongs
@@ -968,19 +967,6 @@ mstp_cli_set_bridge_table (const char *key, const char *value) {
                 __FILE__, __LINE__);
         return e_vtysh_error;
     }
-
-    /* TODO This part of initialization need to move to MSTP daemon */
-    if (VTYSH_STR_EQ(key, MSTP_ADMIN_STATUS)) {
-        mstp_enable = (VTYSH_STR_EQ(value, STATUS_ENABLE))?true:false;
-
-        /* Set the default config-name at the time of enable spanning-tree */
-        if((mstp_enable == true) && (init_required == true)) {
-            mstp_util_set_defaults();
-            mstp_util_add_default_ports_to_cist();
-            init_required = false;
-        }
-    }
-
     START_DB_TXN(txn);
 
     bridge_row = ovsrec_bridge_first(idl);
@@ -989,6 +975,7 @@ mstp_cli_set_bridge_table (const char *key, const char *value) {
     }
 
     if (VTYSH_STR_EQ(key, MSTP_ADMIN_STATUS)) {
+        mstp_enable = (VTYSH_STR_EQ(value, STATUS_ENABLE))?true:false;
         ovsrec_bridge_set_mstp_enable(bridge_row, &mstp_enable, 1);
     }
     else if((VTYSH_STR_EQ(key, MSTP_CONFIG_NAME)) ||
@@ -1239,6 +1226,8 @@ mstp_cli_add_inst_vlan_map(const int64_t instid, const char *vlanid) {
     int64_t mstp_old_inst_id = 0, *instId_list = NULL;
     int i = 0, j = 0;
     int64_t port_priority = DEF_MSTP_PORT_PRIORITY;
+    int64_t priority = DEF_BRIDGE_PRIORITY;
+    int64_t admin_path_cost = 0;
 
     int vlan_id =(vlanid)? atoi(vlanid):MSTP_INVALID_ID;
 
@@ -1311,6 +1300,8 @@ mstp_cli_add_inst_vlan_map(const int64_t instid, const char *vlanid) {
 
         ovsrec_mstp_instance_set_vlans(mstp_row,
                 (struct ovsrec_vlan **)&vlan_row, 1);
+        ovsrec_mstp_instance_set_priority(mstp_row,
+                &priority, 1);
 
         /* Add CSTI instance for all ports to the CIST table */
         mstp_inst_port_info =
@@ -1341,6 +1332,8 @@ mstp_cli_add_inst_vlan_map(const int64_t instid, const char *vlanid) {
                                                       MSTP_ROLE_DISABLE);
             ovsrec_mstp_instance_port_set_port_priority(mstp_inst_port_row,
                                                         &port_priority, 1 );
+            ovsrec_mstp_instance_port_set_admin_path_cost(mstp_inst_port_row,
+                                                        &admin_path_cost, 1);
             ovsrec_mstp_instance_port_set_port(mstp_inst_port_row,
                                                bridge_row->ports[i]);
             mstp_inst_port_info[j++] = mstp_inst_port_row;
