@@ -176,11 +176,12 @@ extern void inique_nodis(QUEUE_HEAD *head);
 #define MSTP_STATE_DISABLE         "Disabled"
 
 
-#define MSTP_ROLE_ROOT             "root_port",
-#define MSTP_ROLE_DESIGNATE        "designated_port",
-#define MSTP_ROLE_ALTERNATE        "alternate_port",
-#define MSTP_ROLE_BACKUP           "backup_port",
-#define MSTP_ROLE_DISABLE          "disabled_port"
+#define MSTP_ROLE_ROOT             "Root"
+#define MSTP_ROLE_DESIGNATE        "Designated"
+#define MSTP_ROLE_ALTERNATE        "Alternate"
+#define MSTP_ROLE_BACKUP           "Backup"
+#define MSTP_ROLE_DISABLE          "Disabled"
+#define MSTP_ROLE_MASTER           "Master"
 
 /*********** MSTP_CONFIG OF BRIDGE TABLE **************************/
 #define MSTP_ADMIN_STATUS           "mstp_MSTP_ADMIN_STATUS"
@@ -195,6 +196,8 @@ extern void inique_nodis(QUEUE_HEAD *head);
 #define MSTP_CONFIG_REV             "mstp_config_revision"
 #define MSTP_CONFIG_NAME            "mstp_config_name"
 #define MSTP_INSTANCE_CONFIG        "mstp_instances_configured"
+#define MSTP_TX_BPDU                "mstp_tx_bpdu"
+#define MSTP_RX_BPDU                "mstp_rx_bpdu"
 
 /************ MSTP_CONFIG OF PORT TABLE **************************/
 

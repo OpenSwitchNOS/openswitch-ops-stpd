@@ -91,6 +91,7 @@ bool cist_added = false;
 void util_add_default_ports_to_cist();
 void util_mstp_set_defaults();
 void util_mstp_init_config();
+static void util_mstp_status_clean();
 
 struct mstp_global_config mstp_global_conf;
 struct mstp_cist_config mstp_cist_conf;
@@ -1400,6 +1401,7 @@ mstpd_run(void)
             util_mstp_set_defaults();
             util_add_default_ports_to_cist();
             util_mstp_init_config();
+            util_mstp_status_clean();
             cist_added = true;
         }
 
@@ -1565,7 +1567,7 @@ void update_mstp_tx_counters()
     if (!bridge_row) {
         VLOG_ERR("no bridge record found\n");
     }
-    temp = smap_get(&bridge_row->other_config,"mstp_tx_bpdus");
+    temp = smap_get(&bridge_row->other_config, MSTP_TX_BPDU);
     if(temp)
     {
         value = atoi(temp);
@@ -1577,7 +1579,7 @@ void update_mstp_tx_counters()
     value++;
     sprintf(count,"%d",value);
     smap_clone(&smap, &bridge_row->other_config);
-    smap_replace(&smap, "mstp_tx_bpdus" , count);
+    smap_replace(&smap, MSTP_TX_BPDU, count);
 
     ovsrec_bridge_set_other_config(bridge_row, &smap);
     smap_destroy(&smap);
@@ -2249,6 +2251,169 @@ util_add_default_ports_to_cist() {
     ovsdb_idl_txn_commit_block(txn);
     ovsdb_idl_txn_destroy(txn);
 }
+
+/**PROC+***********************************************************
+ * Name:    util_mstp_instance_status_clean
+ *
+ * Purpose: Reset the status parameters to default for the CIST
+ *
+ * Params:    none
+ *
+ * Returns:   none
+ *
+ **PROC-*****************************************************************/
+
+void
+util_mstp_instance_status_clean(time_t curr_time, const struct ovsrec_system *system_row) {
+
+    int i = 0, j = 0;
+    const struct ovsrec_bridge *bridge_row = NULL;
+    const int64_t def_zero = 0;
+    const struct ovsrec_mstp_instance_port *mstp_port_row = NULL;
+    const struct ovsrec_mstp_instance *mstp_row = NULL;
+    const bool topology_unstable = false;
+    struct ovsdb_idl_txn *txn = NULL;
+
+    txn = ovsdb_idl_txn_create(idl);
+
+    bridge_row = ovsrec_bridge_first(idl);
+    if (!bridge_row) {
+        return;
+    }
+
+    for (i=0; i < bridge_row->n_mstp_instances; i++) {
+        mstp_row = bridge_row->value_mstp_instances[i];
+
+        /* MSTP instance clean */
+        ovsrec_mstp_instance_set_hardware_grp_id(mstp_row, &def_zero, 1);
+        ovsrec_mstp_instance_set_designated_root(mstp_row, system_row->system_mac);
+        ovsrec_mstp_instance_set_root_path_cost(mstp_row, &def_zero, 1);
+        ovsrec_mstp_instance_set_root_priority(mstp_row, &def_zero, 1);
+        ovsrec_mstp_instance_set_time_since_top_change(mstp_row, &curr_time, 1);
+        ovsrec_mstp_instance_set_root_port(mstp_row, "");
+        ovsrec_mstp_instance_set_topology_change_count(mstp_row, &def_zero, 1);
+        ovsrec_mstp_instance_set_topology_unstable(mstp_row, &topology_unstable, 1);
+
+        /* MSTP instance port clean */
+        for (j=0; j < mstp_row->n_mstp_instance_ports; j++) {
+            mstp_port_row = mstp_row->mstp_instance_ports[j];
+            if(!mstp_port_row) {
+                assert(0);
+                return;
+            }
+            ovsrec_mstp_instance_port_set_port_state( mstp_port_row, MSTP_STATE_BLOCK);
+            ovsrec_mstp_instance_port_set_port_role( mstp_port_row, MSTP_ROLE_DISABLE);
+            ovsrec_mstp_instance_port_set_designated_root(mstp_port_row, system_row->system_mac);
+            ovsrec_mstp_instance_port_set_designated_root_priority(mstp_port_row, &def_zero, 1);
+            ovsrec_mstp_instance_port_set_designated_cost(mstp_port_row, &def_zero, 1);
+            ovsrec_mstp_instance_port_set_designated_bridge(mstp_port_row, system_row->system_mac);
+            ovsrec_mstp_instance_port_set_designated_bridge_priority(mstp_port_row, &def_zero, 1);
+            ovsrec_mstp_instance_port_set_designated_port(mstp_port_row, "");
+        }
+    }
+    ovsdb_idl_txn_commit_block(txn);
+    ovsdb_idl_txn_destroy(txn);
+}
+
+/**PROC+***********************************************************
+ * Name:    util_mstp_common_instance_status_clean
+ *
+ * Purpose: Reset the status parameters to default for the CIST
+ *
+ * Params:    none
+ *
+ * Returns:   none
+ *
+ **PROC-*****************************************************************/
+void
+util_mstp_common_insatnce_status_clean(time_t curr_time, const struct ovsrec_system *system_row) {
+
+    const struct ovsrec_mstp_common_instance *cist_row = NULL;
+    const struct ovsrec_mstp_common_instance_port *cist_port_row = NULL;
+    struct smap smap = SMAP_INITIALIZER(&smap);
+    const int64_t oper_hello_time = DEF_HELLO_TIME;
+    const int64_t oper_fwd_delay = DEF_FORWARD_DELAY;
+    const int64_t oper_max_age = DEF_MAX_AGE;
+    const int64_t oper_tx_hold_cnt = 1;
+    const bool topology_unstable = false;
+    const int64_t def_zero = 0;
+    struct ovsdb_idl_txn *txn = NULL;
+
+    txn = ovsdb_idl_txn_create(idl);
+
+    cist_row = ovsrec_mstp_common_instance_first (idl);
+    if (!cist_row) {
+        ovsdb_idl_txn_destroy(txn);
+        return;
+    }
+
+    /* MSTP common instance clean */
+    ovsrec_mstp_common_instance_set_hardware_grp_id(cist_row, &def_zero, 1);
+    ovsrec_mstp_common_instance_set_root_priority(cist_row, &def_zero, 1);
+    ovsrec_mstp_common_instance_set_time_since_top_change(cist_row, (int64_t *)&curr_time, 1);
+    ovsrec_mstp_common_instance_set_designated_root(cist_row, "");
+    ovsrec_mstp_common_instance_set_root_path_cost(cist_row, &def_zero, 1);
+    ovsrec_mstp_common_instance_set_root_port(cist_row, "");
+    ovsrec_mstp_common_instance_set_designated_root(cist_row, "");
+    ovsrec_mstp_common_instance_set_cist_path_cost(cist_row, &def_zero, 1);
+    ovsrec_mstp_common_instance_set_remaining_hops(cist_row, &def_zero, 1);
+    ovsrec_mstp_common_instance_set_oper_hello_time(cist_row, &oper_hello_time, 1);
+    ovsrec_mstp_common_instance_set_oper_forward_delay(cist_row, &oper_fwd_delay, 1);
+    ovsrec_mstp_common_instance_set_oper_max_age(cist_row, &oper_max_age, 1);
+    ovsrec_mstp_common_instance_set_oper_tx_hold_count(cist_row, &oper_tx_hold_cnt, 1);
+    ovsrec_mstp_common_instance_set_hello_expiry_time(cist_row, &def_zero, 1);
+    ovsrec_mstp_common_instance_set_forward_delay_expiry_time(cist_row, &def_zero, 1);
+    ovsrec_mstp_common_instance_set_topology_unstable(cist_row, &topology_unstable, 1);
+    ovsrec_mstp_common_instance_set_topology_change_count(cist_row, &def_zero, 1);
+
+    /* MSTP common instance port clean */
+    OVSREC_MSTP_COMMON_INSTANCE_PORT_FOR_EACH(cist_port_row, idl) {
+        ovsrec_mstp_common_instance_port_set_port_role(cist_port_row, MSTP_ROLE_DISABLE);
+        ovsrec_mstp_common_instance_port_set_port_state(cist_port_row, MSTP_STATE_BLOCK);
+        ovsrec_mstp_common_instance_port_set_designated_root(cist_port_row, system_row->system_mac);
+        ovsrec_mstp_common_instance_port_set_link_type(cist_port_row, DEF_LINK_TYPE);
+        ovsrec_mstp_common_instance_port_set_oper_edge_port(cist_port_row, DEF_ADMIN_EDGE, 1);
+        ovsrec_mstp_common_instance_port_set_cist_regional_root_id(cist_port_row, "");
+        ovsrec_mstp_common_instance_port_set_cist_path_cost(cist_port_row, &def_zero, 1);
+        ovsrec_mstp_common_instance_port_set_port_path_cost(cist_port_row, &def_zero, 1);
+        ovsrec_mstp_common_instance_port_set_designated_path_cost(cist_port_row, &def_zero, 1);
+        ovsrec_mstp_common_instance_port_set_designated_port(cist_port_row, "");
+        ovsrec_mstp_common_instance_port_set_designated_bridge(cist_port_row, system_row->system_mac);
+        ovsrec_mstp_common_instance_port_set_fwd_transition_count(cist_port_row, &def_zero, 1);
+
+        smap_clone(&smap, &cist_port_row->mstp_statistics);
+        smap_replace(&smap, MSTP_TX_BPDU , "0");
+        smap_replace(&smap, MSTP_RX_BPDU , "0");
+        ovsrec_mstp_common_instance_port_set_mstp_statistics(cist_port_row, &smap);
+    }
+    ovsdb_idl_txn_commit_block(txn);
+    ovsdb_idl_txn_destroy(txn);
+}
+/**PROC+***********************************************************
+ * Name:    util_mstp_status_clean
+ *
+ * Purpose: Reset the status parameters to default at the init
+ *
+ * Params:    none
+ *
+ * Returns:   none
+ *
+ **PROC-*****************************************************************/
+static void
+util_mstp_status_clean() {
+
+    time_t curr_time;
+    const struct ovsrec_system *system_row = NULL;
+    time(&curr_time);
+
+    system_row = ovsrec_system_first(idl);
+    if (!system_row) {
+        return;
+    }
+
+    util_mstp_instance_status_clean(curr_time, system_row);
+    util_mstp_common_insatnce_status_clean(curr_time, system_row);
+}
 /**PROC+***********************************************************
  * Name:    util_mstp_set_defaults
  *
@@ -2849,22 +3014,22 @@ mstp_util_set_msti_port_table_string (const char *key, char *string, int mstid, 
 void mstp_convertPortRoleEnumToString(MSTP_PORT_ROLE_t role,char *string)
 {
     if(role == MSTP_PORT_ROLE_ROOT) {
-        strcpy(string,"root_port");
+        strcpy(string, MSTP_ROLE_ROOT);
     }
     else if (role == MSTP_PORT_ROLE_ALTERNATE) {
-        strcpy(string,"alternate_port");
+        strcpy(string, MSTP_ROLE_ALTERNATE);
     }
     else if (role == MSTP_PORT_ROLE_DESIGNATED) {
-        strcpy(string,"designated_port");
+        strcpy(string, MSTP_ROLE_DESIGNATE);
     }
     else if (role == MSTP_PORT_ROLE_BACKUP) {
-        strcpy(string,"backup_port");
+        strcpy(string, MSTP_ROLE_BACKUP);
     }
     else if (role == MSTP_PORT_ROLE_DISABLED) {
-        strcpy(string,"disabled_port");
+        strcpy(string, MSTP_ROLE_DISABLE);
     }
     else if (role == MSTP_PORT_ROLE_MASTER) {
-        strcpy(string,"master_port");
+        strcpy(string, MSTP_ROLE_MASTER);
     }
 }
 
@@ -3063,8 +3228,10 @@ void update_port_entry_in_cist_mstp_instances(char *name, int operation){
                 &admin_path_cost, 1);
         ovsrec_mstp_common_instance_port_set_port_priority( cist_port_add,
                 &cist_port_priority, 1);
+#if 0
         ovsrec_mstp_common_instance_port_set_link_type( cist_port_add,
                 DEF_LINK_TYPE);
+#endif
         ovsrec_mstp_common_instance_port_set_port_hello_time( cist_port_add,
                 &cist_hello_time, 1);
         ovsrec_mstp_common_instance_port_set_bpdus_rx_enable( cist_port_add, &bpdus_rx_enable, 1);
