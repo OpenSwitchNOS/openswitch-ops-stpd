@@ -136,7 +136,6 @@ struct port_data {
  *
  *********************************/
 #define BITS_PER_BYTE           8
-#define MAX_ENTRIES_IN_POOL     256
 
 #define IS_AVAILABLE(a, idx)  ((a[idx/BITS_PER_BYTE] & (1 << (idx % BITS_PER_BYTE))) == 0)
 
@@ -362,6 +361,7 @@ mstpd_ovsdb_init(const char *db_path)
     //TBD
     ovsdb_idl_add_table(idl, &ovsrec_table_bridge);
     ovsdb_idl_add_column(idl, &ovsrec_bridge_col_other_config);
+    ovsdb_idl_add_column(idl, &ovsrec_bridge_col_status);
     ovsdb_idl_add_column(idl, &ovsrec_bridge_col_ports);
 
     ovsdb_idl_add_table(idl, &ovsrec_table_port);
@@ -2174,6 +2174,7 @@ util_add_default_ports_to_cist() {
     struct ovsdb_idl_txn *txn = NULL;
     const struct ovsrec_bridge *bridge_row = NULL;
     const struct ovsrec_mstp_common_instance *cist_row = NULL;
+    struct ovsrec_vlan **vlans = NULL;
     int64_t i = 0,j = 0;
 
     int64_t cist_hello_time = DEF_HELLO_TIME;
@@ -2245,6 +2246,18 @@ util_add_default_ports_to_cist() {
 
     ovsrec_mstp_common_instance_set_mstp_common_instance_ports (cist_row,
             cist_port_info, bridge_row->n_ports-1);
+    vlans = xcalloc(bridge_row->n_vlans, sizeof *bridge_row->vlans);
+    if (!vlans) {
+        free(cist_port_info);
+        ovsdb_idl_txn_destroy(txn);
+        return;
+    }
+    for (i = 0; i < bridge_row->n_vlans; i++) {
+        vlans[i] = bridge_row->vlans[i];
+    }
+    ovsrec_mstp_common_instance_set_vlans(cist_row, vlans, bridge_row->n_vlans);
+    free(vlans);
+
     free(cist_port_info);
     ovsdb_idl_txn_commit_block(txn);
     ovsdb_idl_txn_destroy(txn);
@@ -2891,6 +2904,7 @@ void handle_vlan_add_in_mstp_config(int vlan)
     if (vlan) {
         OVSREC_VLAN_FOR_EACH(vlan_row, idl) {
             if (vlan == vlan_row->id) {
+                VLOG_INFO("MSTP VLAN %d found",vlan);
                 break;
             }
         }
@@ -2902,6 +2916,7 @@ void handle_vlan_add_in_mstp_config(int vlan)
     cist_row = ovsrec_mstp_common_instance_first(idl);
     /* MSTP instance not found with the incoming instID */
     if(cist_row) {
+        VLOG_INFO("MSTP CIST row found");
         /* Push the complete vlan list to MSTP instance table
          * including the new vlan*/
         vlans =
@@ -2910,6 +2925,7 @@ void handle_vlan_add_in_mstp_config(int vlan)
             ovsdb_idl_txn_commit_block(txn);
             ovsdb_idl_txn_destroy(txn);
         }
+        VLOG_INFO("MSTP CIST row found Memory allcoation passed");
         for (i = 0; i < cist_row->n_vlans; i++) {
             vlans[i] = cist_row->vlans[i];
         }

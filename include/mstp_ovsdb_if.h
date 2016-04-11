@@ -24,6 +24,7 @@
 extern bool exiting;
 #define FULL_DUPLEX 1
 #define HALF_DUPLEX 2
+#define MAX_ENTRIES_IN_POOL     256
 
 /**************************************************************************//**
  * mstpd daemon's main OVS interface function.
@@ -206,10 +207,18 @@ typedef struct mstp_msti_port_stat_info {
     uint16_t designated_port;
 } mstp_msti_port_stat_info;
 
+extern struct mstp_global_config mstp_global_conf;
+extern struct mstp_cist_config mstp_cist_conf;
+extern struct iface_data *idp_lookup[MAX_ENTRIES_IN_POOL];
+extern struct mstp_cist_port_config *cist_port_lookup[MAX_ENTRIES_IN_POOL];
+extern struct mstp_msti_config *msti_lookup[MSTP_INSTANCES_MAX];
+extern struct mstp_msti_port_config *msti_port_lookup[MSTP_INSTANCES_MAX][MAX_ENTRIES_IN_POOL];
+
 
 extern void *mstpd_ovs_main_thread(void *arg);
 // Utility functions
 extern struct iface_data *find_iface_data_by_index(int index);
+extern struct iface_data *find_iface_data_by_name(char *name);
 extern const char * intf_get_mac_addr(uint16_t lport);
 extern const char* system_get_mac_addr(void);
 extern void update_mstp_tx_counters();
