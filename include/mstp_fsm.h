@@ -195,6 +195,8 @@ extern void inique_nodis(QUEUE_HEAD *head);
 #define MSTP_CONFIG_REV             "mstp_config_revision"
 #define MSTP_CONFIG_NAME            "mstp_config_name"
 #define MSTP_INSTANCE_CONFIG        "mstp_instances_configured"
+#define MSTP_TX_BPDU                "mstp_tx_bpdu"
+#define MSTP_RX_BPDU                "mstp_rx_bpdu"
 
 /************ MSTP_CONFIG OF PORT TABLE **************************/
 
