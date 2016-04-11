@@ -31,6 +31,17 @@
 #define MSTP_MSTID_MAX              64
 #define MSTP_MAX_CONFIG_NAME_LEN    32
 
+#define MSTP_PORT_TX_ADD(cist_port, n_pkts)                                     \
+    do{                                                                         \
+        char pkt_cnt[10] = {0};                                                 \
+        struct smap smap = SMAP_INITIALIZER(&smap);                             \
+        smap_clone(&smap, &cist_port->mstp_statistics);                         \
+        snprintf(pkt_cnt, 10, "%x", n_pkts + smap_get_int(&cist_port->mstp_statistics, MSTP_TX_BPDU, 0));\
+        smap_replace (&smap, MSTP_TX_BPDU, (const char *)pkt_cnt);              \
+        ovsrec_mstp_common_instance_port_set_mstp_statistics(cist_port, &smap);  \
+        smap_destroy(&smap);                                                    \
+    }while(0)
+
 #define MSTP_VALID_MSTID(mstid) \
     (((mstid) >= MSTP_MSTID_MIN) && ((mstid) <= MSTP_MSTID_MAX))
 
@@ -68,7 +79,7 @@ typedef enum mstp_flags
 #define DEF_CONFIG_REV               "0"
 #define DEF_MSTP_PORT_PRIORITY       8
 #define DEF_MSTP_COST                20000
-#define DEF_LINK_TYPE                "point_to_point"
+#define DEF_LINK_TYPE                "Point_to_point"
 
 /*********** MSTP_CONFIG OF BRIDGE TABLE **************************/
 #define MSTP_STATE_BLOCK            "Blocking"
@@ -77,10 +88,10 @@ typedef enum mstp_flags
 #define MSTP_STATE_DISABLE          "Disabled"
 
 
-#define MSTP_ROLE_ROOT              "root_port",
-#define MSTP_ROLE_DESIGNATE         "designated_port",
-#define MSTP_ROLE_BACKUP            "backup_port",
-#define MSTP_ROLE_DISABLE           "disabled_port"
+#define MSTP_ROLE_ROOT              "Root"
+#define MSTP_ROLE_DESIGNATE         "Designated"
+#define MSTP_ROLE_BACKUP            "Backup"
+#define MSTP_ROLE_DISABLE           "Disabled"
 
 /*********** MSTP_CONFIG OF BRIDGE TABLE **************************/
 #define MSTP_ADMIN_STATUS           "mstp_MSTP_ADMIN_STATUS"
@@ -96,6 +107,8 @@ typedef enum mstp_flags
 #define MSTP_CONFIG_NAME            "mstp_config_name"
 #define MSTP_CONFIG_DIGEST          "mstp_config_digest"
 #define MSTP_INSTANCE_CONFIG        "mstp_instances_configured"
+#define MSTP_TX_BPDU                "mstp_tx_bpdu"
+#define MSTP_RX_BPDU                "mstp_rx_bpdu"
 
 /************ MSTP_CONFIG OF PORT TABLE **************************/
 
