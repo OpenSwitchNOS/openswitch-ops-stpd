@@ -1133,8 +1133,6 @@ mstp_cist_update(const struct stp_blk_params *br)
 
     msti = mstp_cist_and_instance_lookup(MSTP_CIST);
     if (!msti) {
-        const struct ovsrec_mstp_common_instance *msti_cist_cfg =
-                                                br->cfg->mstp_common_instance;
         VLOG_DBG("%s:Creating CIST", __FUNCTION__);
         mstp_cist_create(br, msti_cist_cfg);
         return;
