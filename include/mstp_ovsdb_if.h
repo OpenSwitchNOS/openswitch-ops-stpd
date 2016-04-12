@@ -20,10 +20,21 @@
 #include <vswitch-idl.h>
 #include "mstp_fsm.h"
 
-
+extern struct ovsdb_idl *idl;
 extern bool exiting;
 #define FULL_DUPLEX 1
 #define HALF_DUPLEX 2
+extern pthread_mutex_t ovsdb_mutex;
+/* Macros to lock and unlock mutexes in a verbose manner. */
+#define MSTP_OVSDB_LOCK { \
+                VLOG_DBG("%s(%d): MSTP_OVSDB_LOCK: taking lock...", __FUNCTION__, __LINE__); \
+                pthread_mutex_lock(&ovsdb_mutex); \
+}
+
+#define MSTP_OVSDB_UNLOCK { \
+                VLOG_DBG("%s(%d): MSTP_OVSDB_UNLOCK: releasing lock...", __FUNCTION__, __LINE__); \
+                pthread_mutex_unlock(&ovsdb_mutex); \
+}
 
 /**************************************************************************//**
  * mstpd daemon's main OVS interface function.
@@ -206,10 +217,18 @@ typedef struct mstp_msti_port_stat_info {
     uint16_t designated_port;
 } mstp_msti_port_stat_info;
 
+extern struct mstp_global_config mstp_global_conf;
+extern struct mstp_cist_config mstp_cist_conf;
+extern struct iface_data *idp_lookup[MAX_ENTRIES_IN_POOL+1];
+extern struct mstp_cist_port_config *cist_port_lookup[MAX_ENTRIES_IN_POOL+1];
+extern struct mstp_msti_config *msti_lookup[MSTP_INSTANCES_MAX+1];
+extern struct mstp_msti_port_config *msti_port_lookup[MSTP_INSTANCES_MAX+1][MAX_ENTRIES_IN_POOL+1];
+
 
 extern void *mstpd_ovs_main_thread(void *arg);
 // Utility functions
 extern struct iface_data *find_iface_data_by_index(int index);
+extern struct iface_data *find_iface_data_by_name(char *name);
 extern const char * intf_get_mac_addr(uint16_t lport);
 extern const char* system_get_mac_addr(void);
 extern void update_mstp_tx_counters();
