@@ -1497,6 +1497,7 @@ mstp_buildMstConfigurationDigest(uint8_t *resDigest)
    memset(digest, 0, sizeof(digest));
    hmac_md5((unsigned char*) mstCfgTable, mstCfgTableSize,
                  (uint8_t*)mstp_DigestSignatureKey, MSTP_DIGEST_KEY_LEN, digest);
+   VLOG_DBG("Config Digest : %s",digest);
 
    /*------------------------------------------------------------------------
     * copy result
@@ -1994,7 +1995,9 @@ void
 mstp_newTcWhile(MSTID_t mstid, LPORT_t lport)
 {
    uint16_t tcWhileVal = 0;
-
+   struct ovsdb_idl_txn *txn = NULL;
+   MSTP_OVSDB_LOCK;
+   txn = ovsdb_idl_txn_create(idl);
    STP_ASSERT(MSTP_ENABLED);
    STP_ASSERT(IS_VALID_LPORT(lport));
    STP_ASSERT((mstid == MSTP_CISTID) || MSTP_VALID_MSTID(mstid));
@@ -2072,6 +2075,9 @@ mstp_newTcWhile(MSTID_t mstid, LPORT_t lport)
          mstp_util_set_msti_table_value(TIME_SINCE_TOP_CHANGE,MSTP_MSTI_INFO(mstid)->timeSinceTopologyChange,mstid);
       }
    }
+   ovsdb_idl_txn_commit_block(txn);
+   ovsdb_idl_txn_destroy(txn);
+   MSTP_OVSDB_UNLOCK;
 }
 
 /**PROC+**********************************************************************
@@ -3444,7 +3450,10 @@ mstp_recordPriority(MSTID_t mstid,  LPORT_t lport)
 void
 mstp_recordTimes(MSTID_t mstid,  LPORT_t lport)
 {
-   STP_ASSERT(IS_VALID_LPORT(lport));
+    struct ovsdb_idl_txn *txn = NULL;
+    MSTP_OVSDB_LOCK;
+    txn = ovsdb_idl_txn_create(idl);
+    STP_ASSERT(IS_VALID_LPORT(lport));
    STP_ASSERT(mstid == MSTP_CISTID || MSTP_VALID_MSTID(mstid));
 
    if(mstid == MSTP_CISTID)
@@ -3494,6 +3503,9 @@ mstp_recordTimes(MSTID_t mstid,  LPORT_t lport)
       STP_ASSERT(mstiPortPtr);
       mstiPortPtr->portTimes.hops = mstiPortPtr->msgTimes.hops;
    }
+   ovsdb_idl_txn_commit_block(txn);
+   ovsdb_idl_txn_destroy(txn);
+   MSTP_OVSDB_UNLOCK;
 }
 
 /**PROC+**********************************************************************
@@ -4221,7 +4233,7 @@ mstp_txTcn(LPORT_t lport)
                idp->name, rc);
        STP_ASSERT(FALSE);
    }
-   VLOG_INFO("If it is here!! Packet is OUT successfully!!!");
+   VLOG_DBG("If it is here!! Packet is OUT successfully!!!");
 
 
 }
@@ -4302,7 +4314,7 @@ mstp_txConfig(LPORT_t lport)
 
    /* get the mac address for the port */
    my_mac = intf_get_mac_addr(lport);
-   VLOG_INFO("MSTP Util : 5 : mac : %s", my_mac);
+   VLOG_DBG("MSTP Util : 5 : mac : %s", my_mac);
    sscanf(my_mac,"%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",&mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]);
    MAC_ADDR_COPY(&mac, bpdu->lsapHdr.src);
 
@@ -4389,7 +4401,7 @@ mstp_txConfig(LPORT_t lport)
                idp->name, rc);
        STP_ASSERT(FALSE);
    }
-   VLOG_INFO("If it is here!! Packet is OUT successfully!!!");
+   VLOG_DBG("If it is here!! Packet is OUT successfully!!!");
 
 }
 
@@ -4505,7 +4517,7 @@ mstp_txMstp(LPORT_t lport)
 
    /* get the mac address for the port */
    my_mac = intf_get_mac_addr(lport);
-   VLOG_INFO("MSTP Util : 5 : mac : %s", my_mac);
+   VLOG_DBG("MSTP Util : 5 : mac : %s", my_mac);
    sscanf(my_mac,"%02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx",&mac[0],&mac[1],&mac[2],&mac[3],&mac[4],&mac[5]);
    MAC_ADDR_COPY(&mac, bpdu->lsapHdr.src);
 
@@ -4634,7 +4646,7 @@ mstp_txMstp(LPORT_t lport)
    /*------------------------------------------------------------------------
     * check the state of Force Protocol Version parameter
     *------------------------------------------------------------------------*/
-   if(mstp_Bridge.ForceVersion < 3)
+   if(mstp_Bridge.ForceVersion < MSTP_PROTOCOL_VERSION_ID_MST)
    {/* If the value of the Force Protocol Version parameter is less than 3,
      * no further parameters are encoded in the BPDU and the protocol version
      * parameter is set to 2 (denoting an RST BPDU) */
@@ -4907,9 +4919,7 @@ mstp_txMstp(LPORT_t lport)
                idp->name, rc);
        STP_ASSERT(FALSE);
    }
-   VLOG_INFO("If it is here!! Packet is OUT successfully!!!");
-
-
+   VLOG_DBG("If it is here!! Packet is OUT successfully!!!");
 
 }
 
@@ -5088,13 +5098,18 @@ mstp_updtRcvdInfoWhile(MSTID_t mstid, LPORT_t lport)
 void
 mstp_updtRolesTree(MSTID_t mstid)
 {
+   struct ovsdb_idl_txn *txn = NULL;
    STP_ASSERT(MSTP_ENABLED);
    STP_ASSERT(mstid == MSTP_CISTID || MSTP_VALID_MSTID(mstid));
-
+   MSTP_OVSDB_LOCK;
+   txn = ovsdb_idl_txn_create(idl);
    if(mstid == MSTP_CISTID)
       mstp_updtRolesCist();
    else
       mstp_updtRolesMsti(mstid);
+   ovsdb_idl_txn_commit_block(txn);
+   ovsdb_idl_txn_destroy(txn);
+   MSTP_OVSDB_UNLOCK;
 }
 
 /**PROC+**********************************************************************
@@ -5130,7 +5145,6 @@ mstp_updtRolesCist(void)
    uint16_t                       rootHelloTime = 0;
    char                           oldRootPortName[PORTNAME_LEN];
    char                           newRootPortName[PORTNAME_LEN];
-
    hadNonZeroCistEPC = (MSTP_CIST_ROOT_PRIORITY.extRootPathCost == 0);
 
    /*------------------------------------------------------------------------

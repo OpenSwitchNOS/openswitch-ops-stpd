@@ -17,12 +17,46 @@
 #ifndef _MSTP_H_
 #define _MSTP_H_
 
+#include <unixctl.h>
 #include <sys/types.h>
 #include <dynamic-string.h>
 
 extern void mstpd_ovsdb_init(const char *db_path);
 extern void mstpd_ovsdb_exit(void);
 extern void mstpd_debug_dump(struct ds *ds, int argc, const char *argv[]);
+extern void mstpd_cist_unixctl_list(struct unixctl_conn *conn, int argc,
+                   const char *argv[], void *aux OVS_UNUSED);
+extern void mstpd_cist_data_dump(struct ds *ds, int argc, const char *argv[]);
+extern void mstpd_cist_port_unixctl_list(struct unixctl_conn *conn, int argc,
+                   const char *argv[], void *aux OVS_UNUSED);
+extern void mstpd_cist_port_data_dump(struct ds *ds, int argc, const char *argv[]);
+extern void mstpd_msti_unixctl_list(struct unixctl_conn *conn, int argc,
+                   const char *argv[], void *aux OVS_UNUSED);
+extern void mstpd_msti_data_dump(struct ds *ds, int argc, const char *argv[]);
+extern void mstpd_msti_port_unixctl_list(struct unixctl_conn *conn, int argc,
+                   const char *argv[], void *aux OVS_UNUSED);
+extern void mstpd_msti_port_data_dump(struct ds *ds, int argc, const char *argv[]);
+extern void mstpd_daemon_cist_unixctl_list(struct unixctl_conn *conn, int argc,
+                   const char *argv[], void *aux OVS_UNUSED);
+extern void mstpd_daemon_cist_data_dump(struct ds *ds, int argc, const char *argv[]);
+extern void mstpd_daemon_cist_port_unixctl_list(struct unixctl_conn *conn, int argc,
+                   const char *argv[], void *aux OVS_UNUSED);
+extern void mstpd_daemon_cist_port_data_dump(struct ds *ds, int argc, const char *argv[]);
+extern void mstpd_daemon_msti_unixctl_list(struct unixctl_conn *conn, int argc,
+                   const char *argv[], void *aux OVS_UNUSED);
+extern void mstpd_daemon_msti_data_dump(struct ds *ds, int argc, const char *argv[]);
+extern void mstpd_daemon_msti_port_unixctl_list(struct unixctl_conn *conn, int argc,
+                   const char *argv[], void *aux OVS_UNUSED);
+extern void mstpd_daemon_msti_port_data_dump(struct ds *ds, int argc, const char *argv[]);
+extern void mstpd_daemon_comm_port_unixctl_list(struct unixctl_conn *conn, int argc,
+                   const char *argv[], void *aux OVS_UNUSED);
+extern void mstpd_daemon_comm_port_data_dump(struct ds *ds, int argc, const char *argv[]);
+extern void mstpd_daemon_msg_queue_unixctl_list(struct unixctl_conn *conn, int argc,
+                   const char *argv[], void *aux OVS_UNUSED);
+extern void mstpd_daemon_msg_queue_data_dump(struct ds *ds, int argc, const char *argv[]);
+extern void mstpd_daemon_debug_sm_unixctl_list(struct unixctl_conn *conn, int argc,
+                   const char *argv[], void *aux OVS_UNUSED);
+extern void mstpd_daemon_debug_sm_data_dump(struct ds *ds, int argc, const char *argv[]);
 
 extern void *mstpd_rx_pdu_thread(void *data);
 extern int register_stp_mcast_addr(int ifindex);
