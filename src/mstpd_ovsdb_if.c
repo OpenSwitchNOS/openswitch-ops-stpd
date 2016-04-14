@@ -1163,7 +1163,7 @@ static int update_l2port_cache(void)
                     int j = 0;
                     free(cist_port_lookup[lport]);
                     cist_port_lookup[lport] = NULL;
-                    for(j = 1; i <= MSTP_INSTANCES_MAX; j++)
+                    for(j = 1; j <= MSTP_INSTANCES_MAX; j++)
                     {
                         if (msti_port_lookup[j][lport])
                         {
@@ -1723,6 +1723,10 @@ int mstp_cist_port_config_update(void) {
         if(cist_port_row)
         {
             uint32_t lport = 0;
+            if (!cist_port_row->port)
+            {
+                continue;
+            }
             idp = find_iface_data_by_name(cist_port_row->port->name);
             if(!idp)
             {
@@ -1982,6 +1986,10 @@ int mstp_msti_port_update_config(void)
             {
                 int lport = 0;
                 mstp_inst_port = mstp_inst->mstp_instance_ports[j];
+                if (!mstp_inst_port->port)
+                {
+                    continue;
+                }
                 idp = find_iface_data_by_name(mstp_inst_port->port->name);
                 if(!idp)
                 {
@@ -3031,6 +3039,10 @@ void update_port_entry_in_cist_mstp_instances(char *name, int operation){
     }
     OVSREC_MSTP_COMMON_INSTANCE_PORT_FOR_EACH(cist_port_row,idl)
     {
+        if(!cist_port_row->port && operation == e_mstpd_lport_delete)
+        {
+            break;
+        }
         if(strcmp(cist_port_row->port->name,name)== 0)
         {
             break;
@@ -3106,7 +3118,7 @@ void update_port_entry_in_cist_mstp_instances(char *name, int operation){
         }
 
         for (i = 0,j = 0; i < cist_row->n_mstp_common_instance_ports; i++) {
-            if(strcmp(cist_row->mstp_common_instance_ports[i]->port->name,name) != 0)
+            if(cist_row->mstp_common_instance_ports[i]->port && strcmp(cist_row->mstp_common_instance_ports[i]->port->name,name) != 0)
             {
                 cist_port_info[j++] = cist_row->mstp_common_instance_ports[i];
             }
@@ -3153,6 +3165,11 @@ void update_port_entry_in_msti_mstp_instances(char *name,int operation) {
         msti_row = bridge_row->value_mstp_instances[i];
         for (j = 0; j < msti_row->n_mstp_instance_ports; j++)
         {
+            if (!msti_row->mstp_instance_ports[i]->port && operation == e_mstpd_lport_delete)
+            {
+                msti_port_row = msti_row->mstp_instance_ports[i];
+                break;
+            }
             if (strcmp(msti_row->mstp_instance_ports[i]->port->name,name) == 0)
             {
                 msti_port_row = msti_row->mstp_instance_ports[i];
@@ -3221,7 +3238,7 @@ void update_port_entry_in_msti_mstp_instances(char *name,int operation) {
             }
 
             for (k = 0,j =0; k < msti_row->n_mstp_instance_ports; k++) {
-                if(strcmp(msti_row->mstp_instance_ports[i]->port->name,name) != 0)
+                if(msti_row->mstp_instance_ports[i]->port && strcmp(msti_row->mstp_instance_ports[i]->port->name,name) != 0)
                 {
                     msti_port_info[j++] = msti_row->mstp_instance_ports[k];
                 }
