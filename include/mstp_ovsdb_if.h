@@ -20,6 +20,7 @@
 #include <vswitch-idl.h>
 #include "mstp_fsm.h"
 
+void util_mstp_status_statistics_clean();
 
 extern bool exiting;
 #define FULL_DUPLEX 1
