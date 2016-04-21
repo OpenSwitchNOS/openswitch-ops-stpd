@@ -37,7 +37,7 @@ VLOG_DEFINE_THIS_MODULE(switchd_stp);
 #define INSTANCE_STRING_LEN 10
 
 struct hmap all_mstp_instances = HMAP_INITIALIZER(&all_mstp_instances);
-static struct asic_plugin_interface *p_asic_plugin_interface = NULL;
+//static struct asic_plugin_interface *p_asic_plugin_interface = NULL;
 const char *port_state_str[] = {"Disabled", "Blocking", "Learning",
                                 "Forwarding", "Invalid"};
 
@@ -51,6 +51,8 @@ const char *port_state_str[] = {"Disabled", "Blocking", "Learning",
 struct asic_plugin_interface *
 get_asic_plugin_interface(void)
 {
+
+#if 0
     struct plugin_extension_interface *p_extension;
 
     /* check asic plugin exists */
@@ -73,6 +75,8 @@ get_asic_plugin_interface(void)
     else {
         return NULL;
     }
+#endif /*0*/
+    return NULL;
 }
 
 /*------------------------------------------------------------------------------
