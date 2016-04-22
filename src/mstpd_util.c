@@ -4249,7 +4249,7 @@ mstp_txTcn(LPORT_t lport)
                "port=%s", idp->name);
        STP_ASSERT(FALSE);
    }
-   pkt->pktLen = sizeof(uint32_t)+sizeof(MSTP_CFG_BPDU_t);
+   pkt->pktLen = sizeof(uint32_t)+sizeof(MSTP_TCN_BPDU_t);
    rc = sendto(idp->pdu_sockfd, pkt->data, pkt->pktLen, 0, NULL, 0);
    if (rc == -1) {
        VLOG_ERR("Failed to send MSTPDU for interface=%s, rc=%d",
@@ -4935,7 +4935,7 @@ mstp_txMstp(LPORT_t lport)
                "port=%s", idp->name);
        STP_ASSERT(FALSE);
    }
-   pkt->pktLen = sizeof(uint32_t)+sizeof(MSTP_CFG_BPDU_t);
+   pkt->pktLen = sizeof(uint32_t)+sizeof(MSTP_MST_BPDU_t);
    rc = sendto(idp->pdu_sockfd, pkt->data, pkt->pktLen, 0, NULL, 0);
    if (rc == -1) {
        VLOG_ERR("Failed to send MSTPDU for interface=%s, rc=%d",
