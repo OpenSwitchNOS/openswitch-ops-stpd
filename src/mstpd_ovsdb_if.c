@@ -329,6 +329,7 @@ mstpd_ovsdb_init(const char *db_path)
     ovsdb_idl_add_table(idl, &ovsrec_table_vlan);
     ovsdb_idl_add_column(idl, &ovsrec_vlan_col_id);
     ovsdb_idl_add_column(idl, &ovsrec_vlan_col_name);
+    ovsdb_idl_add_column(idl, &ovsrec_vlan_col_internal_usage);
 
 
     /* Mark the following columns write-only. */
@@ -1208,6 +1209,7 @@ add_new_vlan(struct shash_node *sh_node)
         new_vlan->vlan_id = vlan_row->id;
         new_vlan->name = xstrdup(vlan_row->name);
         send_vlan_add_msg(new_vlan->vlan_id);
+
         VLOG_DBG("Created local data for VLAN %d", (int)vlan_row->id);
     }
 } /* add_new_vlan */
@@ -1256,11 +1258,16 @@ update_vlan_cache(void)
     struct shash sh_idl_vlans;
     const struct ovsrec_vlan *row;
     struct shash_node *sh_node, *sh_next;
+    struct smap smap = SMAP_INITIALIZER(&smap);
     int rc = 0;
 
     /* Collect all the VLANs in the DB. */
     shash_init(&sh_idl_vlans);
     OVSREC_VLAN_FOR_EACH(row, idl) {
+        if(smap_get(&row->internal_usage,"l3port") != NULL )
+        {
+            continue;
+        }
         if (!shash_add_once(&sh_idl_vlans, row->name, row)) {
             VLOG_DBG("VLAN %s (%d) specified twice", row->name, (int)row->id);
         }
