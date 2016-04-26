@@ -239,6 +239,9 @@ cli_show_spanning_tree_config(bool detail) {
             "------------ --------------",
             "---------- ------- ---------- ----------", VTY_NEWLINE);
     OVSREC_MSTP_COMMON_INSTANCE_PORT_FOR_EACH(cist_port, idl) {
+        if (!cist_port->port) {
+           continue;
+        }
         vty_out(vty, "%-12s %-14s %-10s %-7ld %-10ld %s%s",
                 cist_port->port->name, cist_port->port_role,
                 cist_port->port_state, *cist_port->admin_path_cost,
