@@ -400,6 +400,7 @@ mstpd_protocol_thread(void *arg)
     pthread_detach(pthread_self());
     clear_port_map(&ports_up);
     clear_port_map(&l2ports);
+    mstp_Bridge.ForceVersion = MSTP_PROTOCOL_VERSION_ID_MST;
     mstpInitialInit();
 
     VLOG_DBG("%s : waiting for events in the main loop", __FUNCTION__);
@@ -945,7 +946,7 @@ void update_mstp_cist_config(mstpd_message *pmsg)
             cist_config->priority)
     {
         MSTP_SET_BRIDGE_PRIORITY(MSTP_CIST_BRIDGE_IDENTIFIER,
-                cist_config->priority);
+                cist_config->priority * PRIORITY_MULTIPLIER);
         MSTP_DYN_RECONFIG_CHANGE = TRUE;
     }
 
@@ -1302,7 +1303,7 @@ void update_mstp_cist_port_config(mstpd_message *pmsg)
                 if(MSTP_CIST_PORT_PTR(lport))
                     MSTP_CIST_PORT_PTR(lport)->dbgCnts.errantBpduCnt = 0;
                 if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
-                            MSTP_PORT_PORT_ENABLED))
+                            MSTP_PORT_PORT_ENABLED) && MSTP_ENABLED)
                 {
                     /*---------------------------------------------------------
                      * Initialize port's Bridge Detect State Machine
@@ -1323,7 +1324,7 @@ void update_mstp_cist_port_config(mstpd_message *pmsg)
                 if(MSTP_CIST_PORT_PTR(lport))
                     MSTP_CIST_PORT_PTR(lport)->dbgCnts.errantBpduCnt = 0;
                 if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
-                            MSTP_PORT_PORT_ENABLED))
+                            MSTP_PORT_PORT_ENABLED) && MSTP_ENABLED)
                 {
                     /*---------------------------------------------------------
                      * Initialize port's Bridge Detect State Machine
