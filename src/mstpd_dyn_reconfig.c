@@ -265,7 +265,6 @@ mstp_adminStatusUpdate(int status)
    {/* the protocol has been enabled, run it */
 
       Spanning = TRUE; /* also used by other features */
-      mstp_Bridge.ForceVersion = MSTP_PROTOCOL_VERSION_ID_MST;
 
       /*---------------------------------------------------------------------
        * Initialize global 'mstp_MstiVlanTable'. By default all VLANs
