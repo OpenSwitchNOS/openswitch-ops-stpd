@@ -329,6 +329,7 @@ mstpd_ovsdb_init(const char *db_path)
     ovsdb_idl_add_table(idl, &ovsrec_table_vlan);
     ovsdb_idl_add_column(idl, &ovsrec_vlan_col_id);
     ovsdb_idl_add_column(idl, &ovsrec_vlan_col_name);
+    ovsdb_idl_add_column(idl, &ovsrec_vlan_col_internal_usage);
 
 
     /* Mark the following columns write-only. */
@@ -1025,6 +1026,10 @@ update_interface_cache(void)
     /* Collect all the interfaces in the DB. */
     shash_init(&sh_idl_interfaces);
     OVSREC_INTERFACE_FOR_EACH(ifrow, idl) {
+        if (strcmp(ifrow->type,OVSREC_INTERFACE_TYPE_SYSTEM)!=0)
+        {
+            continue;
+        }
         if (!shash_add_once(&sh_idl_interfaces, ifrow->name, ifrow)) {
             VLOG_DBG("interface %s specified twice", ifrow->name);
         }
@@ -1256,11 +1261,16 @@ update_vlan_cache(void)
     struct shash sh_idl_vlans;
     const struct ovsrec_vlan *row;
     struct shash_node *sh_node, *sh_next;
+    struct smap smap = SMAP_INITIALIZER(&smap);
     int rc = 0;
 
     /* Collect all the VLANs in the DB. */
     shash_init(&sh_idl_vlans);
     OVSREC_VLAN_FOR_EACH(row, idl) {
+        if(smap_get(&row->internal_usage,"l3port") != NULL )
+        {
+            continue;
+        }
         if (!shash_add_once(&sh_idl_vlans, row->name, row)) {
             VLOG_DBG("VLAN %s (%d) specified twice", row->name, (int)row->id);
         }

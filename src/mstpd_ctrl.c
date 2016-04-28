@@ -400,6 +400,7 @@ mstpd_protocol_thread(void *arg)
     pthread_detach(pthread_self());
     clear_port_map(&ports_up);
     clear_port_map(&l2ports);
+    mstp_Bridge.ForceVersion = MSTP_PROTOCOL_VERSION_ID_MST;
     mstpInitialInit();
 
     VLOG_DBG("%s : waiting for events in the main loop", __FUNCTION__);
@@ -945,7 +946,7 @@ void update_mstp_cist_config(mstpd_message *pmsg)
             cist_config->priority)
     {
         MSTP_SET_BRIDGE_PRIORITY(MSTP_CIST_BRIDGE_IDENTIFIER,
-                cist_config->priority);
+                cist_config->priority * 4096);
         MSTP_DYN_RECONFIG_CHANGE = TRUE;
     }
 
