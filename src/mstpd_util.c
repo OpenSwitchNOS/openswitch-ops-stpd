@@ -4602,7 +4602,7 @@ mstp_txMstp(LPORT_t lport)
     * NOTE: Octets 26 and 27 convey the CIST Port Identifier of the
     *       transmitting Bridge Port
     *       (802.1Q-REV/D5.0 14.6 k)) */
-   storeShortInPacket(&bpdu->cistPortId, cistPortPtr->portId << 8);
+   storeShortInPacket(&bpdu->cistPortId, cistPortPtr->portId);
 
    /*------------------------------------------------------------------------
     * set CIST port role.
@@ -4722,7 +4722,7 @@ mstp_txMstp(LPORT_t lport)
       memcpy(&bpdu->mstConfigurationId, &mstp_Bridge.MstConfigId,
              sizeof(bpdu->mstConfigurationId));
       storeShortInPacket(&bpdu->mstConfigurationId.revisionLevel,
-                          mstp_Bridge.MstConfigId.revisionLevel);
+                        mstp_Bridge.MstConfigId.revisionLevel);
       version3Len += sizeof(bpdu->mstConfigurationId);
 
       /*---------------------------------------------------------------------
@@ -4955,7 +4955,7 @@ mstp_txMstp(LPORT_t lport)
                "port=%s", idp->name);
        STP_ASSERT(FALSE);
    }
-   pkt->pktLen = sizeof(uint32_t)+sizeof(MSTP_MST_BPDU_t);
+   pkt->pktLen = ENET_HDR_SIZ + bpduLen;
    rc = sendto(idp->pdu_sockfd, pkt->data, pkt->pktLen, 0, NULL, 0);
    if (rc == -1) {
        VLOG_ERR("Failed to send MSTPDU for interface=%s, rc=%d",

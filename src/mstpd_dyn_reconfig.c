@@ -36,6 +36,7 @@
 
 #include "mstp_fsm.h"
 #include "mstp_recv.h"
+#include "mstp_ovsdb_if.h"
 #include "mstp_inlines.h"
 
 VLOG_DEFINE_THIS_MODULE(mstpd_dyn_reconfig);
@@ -329,8 +330,6 @@ mstp_adminStatusUpdate(int status)
        *---------------------------------------------------------------------*/
       mstp_clearProtocolData();
 
-      STP_ASSERT(MSTP_NUM_OF_VALID_TREES == 0);
-
       /*---------------------------------------------------------------------
        * indicate that MSTP protocol is not initialized
        *---------------------------------------------------------------------*/
@@ -339,14 +338,6 @@ mstp_adminStatusUpdate(int status)
        * Remove from the queue all pending MSTP messages to DB
        *---------------------------------------------------------------------*/
       mstp_clearMstpToOthersMessageQueue();
-      /*---------------------------------------------------------------------
-       * Inform DB that some ports need to be restored back
-       * to the FORWARDING state.
-       *---------------------------------------------------------------------*/
-      if(are_any_ports_set(&set_fwd_pmap))
-      {
-//         mstp_blockedPortsBackToForward(&set_fwd_pmap);
-      }
       /*----------------------------------------------------------------------
        * clear portmaps used to keep track of lports MSTP has told DB are
        * forwarding or blocked (used to escape message flooding when MSTP
@@ -354,6 +345,7 @@ mstp_adminStatusUpdate(int status)
        *---------------------------------------------------------------------*/
       clear_port_map(&MSTP_FWD_LPORTS);
       clear_port_map(&MSTP_BLK_LPORTS);
+      mstp_config_reinit();
 
       /*---------------------------------------------------------------------
        * log VLOG message
