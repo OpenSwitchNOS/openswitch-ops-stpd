@@ -487,6 +487,13 @@ mstpd_protocol_thread(void *arg)
             {
                 register_stp_mcast_addr(lport);
                 mstp_addLport(lport);
+                if(!is_lport_down(lport))
+                {
+                    SPEED_DPLX    ports_cfg = {0};
+                    intf_get_lport_speed_duplex(lport,&ports_cfg);
+                    mstp_portAutoDetectParamsSet(lport, &ports_cfg);
+                    mstp_portEnable(lport);
+                }
             }
             continue;
         }
@@ -652,6 +659,7 @@ mstpd_protocol_thread(void *arg)
         if (informDB) {
             mstp_informDBOnPortStateChange(pmsg->msg_type);
         }
+        mstp_checkDynReconfigChanges();
 
         mstpd_event_free(pmsg);
 
@@ -890,13 +898,18 @@ void update_mstp_global_config(mstpd_message *pmsg)
     {
         memcpy(mstp_Bridge.MstConfigId.configName, global_config->config_name,
                 MSTP_MST_CONFIG_NAME_LEN);
-        MSTP_DYN_RECONFIG_CHANGE = TRUE;
-
+        if (MSTP_ENABLED)
+        {
+            MSTP_DYN_RECONFIG_CHANGE = TRUE;
+        }
     }
     if(mstp_Bridge.MstConfigId.revisionLevel != global_config->config_revision)
     {
         mstp_Bridge.MstConfigId.revisionLevel = global_config->config_revision;
-        MSTP_DYN_RECONFIG_CHANGE = TRUE;
+        if (MSTP_ENABLED)
+        {
+            MSTP_DYN_RECONFIG_CHANGE = TRUE;
+        }
     }
     if (status == TRUE && Spanning == FALSE)
     {
@@ -939,15 +952,21 @@ void update_mstp_cist_config(mstpd_message *pmsg)
     if (!are_vidmaps_equal(&mstp_MstiVidTable[MSTP_CISTID],&cist_config->vlans))
     {
         copy_vid_map(&cist_config->vlans,&mstp_MstiVidTable[MSTP_CISTID]);
-        MSTP_DYN_RECONFIG_CHANGE = TRUE;
+        if (MSTP_ENABLED)
+        {
+            MSTP_DYN_RECONFIG_CHANGE = TRUE;
+        }
     }
 
     if(MSTP_GET_BRIDGE_PRIORITY(MSTP_CIST_BRIDGE_IDENTIFIER) !=
-            cist_config->priority)
+            cist_config->priority * PRIORITY_MULTIPLIER)
     {
         MSTP_SET_BRIDGE_PRIORITY(MSTP_CIST_BRIDGE_IDENTIFIER,
                 cist_config->priority * PRIORITY_MULTIPLIER);
-        MSTP_DYN_RECONFIG_CHANGE = TRUE;
+        if (MSTP_ENABLED)
+        {
+            MSTP_DYN_RECONFIG_CHANGE = TRUE;
+        }
     }
 
     if(mstp_Bridge.FwdDelay != cist_config->forward_delay)
@@ -1158,7 +1177,17 @@ void update_mstp_cist_port_config(mstpd_message *pmsg)
         {
             cistPortPtr->InternalPortPathCost = path_cost;
             if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
-                        MSTP_PORT_PORT_ENABLED))
+                        MSTP_PORT_PORT_ENABLED) && MSTP_ENABLED)
+            {/* Port is 'Enabled' and the path cost value has changed,
+              * indicate that protocol re-initialization is required */
+                MSTP_DYN_RECONFIG_CHANGE = TRUE;
+            }
+        }
+        if (commPortPtr->ExternalPortPathCost != path_cost)
+        {
+            commPortPtr->ExternalPortPathCost = path_cost;
+            if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
+                        MSTP_PORT_PORT_ENABLED) && MSTP_ENABLED)
             {/* Port is 'Enabled' and the path cost value has changed,
               * indicate that protocol re-initialization is required */
                 MSTP_DYN_RECONFIG_CHANGE = TRUE;
@@ -1206,7 +1235,7 @@ void update_mstp_cist_port_config(mstpd_message *pmsg)
         {
             MSTP_SET_PORT_PRIORITY(cistPortPtr->portId, cist_port_config->port_priority);
             if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
-                        MSTP_PORT_PORT_ENABLED))
+                        MSTP_PORT_PORT_ENABLED) && MSTP_ENABLED)
             {/* Port is 'Enabled' and the priority value has changed,
               * indicate that protocol re-initialization is required */
                 MSTP_DYN_RECONFIG_CHANGE = TRUE;
@@ -1258,7 +1287,8 @@ void update_mstp_cist_port_config(mstpd_message *pmsg)
                         MSTP_PORT_RESTRICTED_ROLE);
                 if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
                             MSTP_PORT_PORT_ENABLED) &&
-                        mstp_isPortRoleSetOnAnyTree(lport, MSTP_PORT_ROLE_ROOT))
+                        mstp_isPortRoleSetOnAnyTree(lport, MSTP_PORT_ROLE_ROOT) &&
+                        MSTP_ENABLED)
                 {/* Port is 'Enabled', is the 'Root' and 'restrictedRole' flag
                   * is set, indicate that protocol re-initialization is
                   * required */
@@ -1271,7 +1301,8 @@ void update_mstp_cist_port_config(mstpd_message *pmsg)
                         MSTP_PORT_RESTRICTED_ROLE);
                 if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
                             MSTP_PORT_PORT_ENABLED) &&
-                        mstp_isPortRoleSetOnAnyTree(lport, MSTP_PORT_ROLE_ALTERNATE))
+                        mstp_isPortRoleSetOnAnyTree(lport, MSTP_PORT_ROLE_ALTERNATE) &&
+                        MSTP_ENABLED)
                 {/* Port is 'Enabled', is the 'Alternate' and 'restrictedRole'
                   * flag is cleared, indicate that protocol re-initialization
                   * is required */
@@ -1416,7 +1447,7 @@ void update_mstp_cist_port_config(mstpd_message *pmsg)
                  * inconsistent state and user reconfigures the loopguard
                  * configuration
                  *---------------------------------------------------------------------*/
-                if(reconfig_needed)
+                if(reconfig_needed && MSTP_ENABLED)
                 {
                     MSTP_DYN_RECONFIG_CHANGE = TRUE;
                 }
@@ -1463,16 +1494,19 @@ void update_mstp_msti_config(mstpd_message *pmsg)
         MSTP_NUM_OF_VALID_TREES++;
     }
 
-    if (mstp_updateMstiVidMapping(msti_data->mstid,msti_data->vlans))
+    if (mstp_updateMstiVidMapping(msti_data->mstid,msti_data->vlans) && MSTP_ENABLED)
     {
         MSTP_DYN_RECONFIG_CHANGE = TRUE;
     }
     if(MSTP_GET_BRIDGE_PRIORITY(MSTP_MSTI_BRIDGE_IDENTIFIER(mstid)) !=
-            msti_data->priority)
+            msti_data->priority * PRIORITY_MULTIPLIER)
     {
         MSTP_SET_BRIDGE_PRIORITY(MSTP_MSTI_BRIDGE_IDENTIFIER(mstid),
-                msti_data->priority);
-        MSTP_DYN_RECONFIG_CHANGE = TRUE;
+                msti_data->priority * PRIORITY_MULTIPLIER);
+        if (MSTP_ENABLED)
+        {
+            MSTP_DYN_RECONFIG_CHANGE = TRUE;
+        }
     }
 }
 /**PROC+**********************************************************************
@@ -1524,7 +1558,7 @@ void update_mstp_msti_port_config(mstpd_message *pmsg)
         MSTP_SET_PORT_PRIORITY(mstiPortPtr->portId,
                 msti_port_config->priority);
         if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
-                    MSTP_PORT_PORT_ENABLED))
+                    MSTP_PORT_PORT_ENABLED) && MSTP_ENABLED)
         {/* Port is 'Enabled' and the priority value has changed,
           * indicate that protocol re-initialization is required */
             MSTP_DYN_RECONFIG_CHANGE = TRUE;
@@ -1539,7 +1573,7 @@ void update_mstp_msti_port_config(mstpd_message *pmsg)
     {
         mstiPortPtr->InternalPortPathCost = path_cost;
         if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
-                    MSTP_PORT_PORT_ENABLED))
+                    MSTP_PORT_PORT_ENABLED) && MSTP_ENABLED)
         {/* Port is 'Enabled' and the path cost value has changed,
           * indicate that protocol re-initialization is required */
             MSTP_DYN_RECONFIG_CHANGE = TRUE;
@@ -1873,7 +1907,7 @@ void update_mstp_on_lport_add(int lport)
     cistPortPtr->useCfgPathCost = path_cost;
     cistPortPtr->InternalPortPathCost = path_cost;
     if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
-                MSTP_PORT_PORT_ENABLED))
+                MSTP_PORT_PORT_ENABLED) && MSTP_ENABLED)
     {/* Port is 'Enabled' and the path cost value has changed,
       * indicate that protocol re-initialization is required */
         MSTP_DYN_RECONFIG_CHANGE = TRUE;
@@ -1900,7 +1934,7 @@ void update_mstp_on_lport_add(int lport)
     {
         MSTP_SET_PORT_PRIORITY(cistPortPtr->portId, DEF_MSTP_PORT_PRIORITY);
         if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
-                    MSTP_PORT_PORT_ENABLED))
+                    MSTP_PORT_PORT_ENABLED) && MSTP_ENABLED)
         {/* Port is 'Enabled' and the priority value has changed,
           * indicate that protocol re-initialization is required */
             MSTP_DYN_RECONFIG_CHANGE = TRUE;
@@ -1943,7 +1977,8 @@ void update_mstp_on_lport_add(int lport)
             MSTP_PORT_RESTRICTED_ROLE);
     if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
                 MSTP_PORT_PORT_ENABLED) &&
-            mstp_isPortRoleSetOnAnyTree(lport, MSTP_PORT_ROLE_ALTERNATE))
+            mstp_isPortRoleSetOnAnyTree(lport, MSTP_PORT_ROLE_ALTERNATE) &&
+            MSTP_ENABLED)
     {/* Port is 'Enabled', is the 'Alternate' and 'restrictedRole'
       * flag is cleared, indicate that protocol re-initialization
       * is required */
@@ -2029,7 +2064,7 @@ void update_mstp_on_lport_add(int lport)
          * inconsistent state and user reconfigures the loopguard
          * configuration
          *---------------------------------------------------------------------*/
-        if(reconfig_needed)
+        if(reconfig_needed && MSTP_ENABLED)
         {
             MSTP_DYN_RECONFIG_CHANGE = TRUE;
         }
@@ -2063,7 +2098,7 @@ void update_mstp_on_lport_add(int lport)
         MSTP_SET_PORT_PRIORITY(mstiPortPtr->portId,
                 MSTP_DEF_PORT_PRIORITY);
         if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
-                    MSTP_PORT_PORT_ENABLED))
+                    MSTP_PORT_PORT_ENABLED) && MSTP_ENABLED)
         {/* Port is 'Enabled' and the priority value has changed,
           * indicate that protocol re-initialization is required */
             MSTP_DYN_RECONFIG_CHANGE = TRUE;
@@ -2074,7 +2109,7 @@ void update_mstp_on_lport_add(int lport)
         {
             mstiPortPtr->InternalPortPathCost = path_cost;
             if(MSTP_COMM_PORT_IS_BIT_SET(commPortPtr->bitMap,
-                        MSTP_PORT_PORT_ENABLED))
+                        MSTP_PORT_PORT_ENABLED) && MSTP_ENABLED)
             {/* Port is 'Enabled' and the path cost value has changed,
               * indicate that protocol re-initialization is required */
                 MSTP_DYN_RECONFIG_CHANGE = TRUE;
