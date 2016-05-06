@@ -1125,8 +1125,8 @@ mstpd_daemon_cist_port_data_dump(struct ds *ds, int argc, const char *argv[])
 
          if(port->InternalPortPathCost == 0)
             strcpy(buf, "Auto");
-         ds_put_format(ds,"InternalPortPathCost=%s, useCfgPathCost=%c\n",
-                buf, port->useCfgPathCost ? 'T' : 'F');
+         ds_put_format(ds,"InternalPortPathCost=%d, useCfgPathCost=%c\n",
+                port->InternalPortPathCost, port->useCfgPathCost ? 'T' : 'F');
       }
 
       ds_put_format(ds,"Per-Port Vars :\n");
