@@ -2788,15 +2788,14 @@ void cli_post_init(void) {
     install_element(ENABLE_NODE, &show_mstp_config_cmd);
     install_element(ENABLE_NODE, &show_running_config_mstp_cmd);
 
-    retval = install_show_run_config_subcontext(e_vtysh_config_context,
-                            e_vtysh_config_context_mstp,
-                            &vtysh_config_context_mstp_clientcallback,
+    retval = install_show_run_config_context(e_vtysh_mstp_context,
+                            &vtysh_mstp_context_clientcallback,
                             NULL, NULL);
 
     if(e_vtysh_ok != retval)
     {
         vtysh_ovsdb_config_logmsg(VTYSH_OVSDB_CONFIG_ERR,
-                "MSTP context unable to add config callback");
+                "Unable to add MSTP context callback");
         assert(0);
     }
 
