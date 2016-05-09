@@ -491,6 +491,8 @@ mstp_show_common_instance_info(
     struct shash sorted_port_id;
     char str[15] = {0};
     int64_t count = 0;
+    char root_mac[OPS_MAC_STR_SIZE] = {0};
+    int priority = 0, sys_id = 0;
 
     system_row = ovsrec_system_first(idl);
     if (!system_row) {
@@ -525,12 +527,22 @@ mstp_show_common_instance_info(
             system_row->system_mac, "priority",
             ((*cist_row->priority) * MSTP_BRIDGE_PRIORITY_MULTIPLIER),
             VTY_NEWLINE);
-    if (VTYSH_STR_EQ(system_row->system_mac, cist_row->designated_root)) {
-        vty_out(vty, "%-14s%s", "Root", VTY_NEWLINE);
+    if(cist_row->designated_root) {
+        sscanf(cist_row->designated_root, "%d.%d.%s", &priority, &sys_id, root_mac);
+        if (VTYSH_STR_EQ(system_row->system_mac, root_mac)) {
+            vty_out(vty, "%-14s%s", "Root", VTY_NEWLINE);
+        }
     }
-    if (VTYSH_STR_EQ(system_row->system_mac, cist_row->regional_root)) {
-        vty_out(vty, "%-14s%s", "Regional Root", VTY_NEWLINE);
+
+
+    if(cist_row->regional_root) {
+        sscanf(cist_row->regional_root, "%d.%d.%s", &priority, &sys_id, root_mac);
+        if (VTYSH_STR_EQ(system_row->system_mac, root_mac)) {
+            vty_out(vty, "%-14s%s", "Regional Root", VTY_NEWLINE);
+        }
     }
+
+
     vty_out(vty, "%-14s %s:%2ld  %s:%2ld  %s:%2ld  %s:%2ld%s", "Operational",
             "Hello time(in seconds)",
             (cist_row->oper_hello_time)?*cist_row->oper_hello_time:DEF_HELLO_TIME,
