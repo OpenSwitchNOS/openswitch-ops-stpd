@@ -5377,9 +5377,16 @@ mstp_updtRolesCist(void)
 
    if (cistRootPortId != MSTP_CIST_ROOT_PORT_ID)
    {
-      char port[20] = {0};
-      intf_get_port_name(MSTP_GET_PORT_NUM(cistRootPortId),port);
-      mstp_util_set_cist_table_string(ROOT_PORT,port);
+       if (cistRootPortId != 0)
+       {
+           char port[20] = {0};
+           intf_get_port_name(MSTP_GET_PORT_NUM(cistRootPortId),port);
+           mstp_util_set_cist_table_string(ROOT_PORT,port);
+       }
+       else
+       {
+           mstp_util_set_cist_table_string(ROOT_PORT,"0");
+       }
       mstp_updtMstiRootInfoChg(MSTP_CISTID);
 
       /* Log root port change */
