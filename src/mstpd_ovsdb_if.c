@@ -68,6 +68,15 @@ pthread_mutex_t ovsdb_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define MEGA_BITS_PER_SEC  1000000
 #define INTF_TO_MSTP_LINK_SPEED(s)    ((s)/MEGA_BITS_PER_SEC)
 
+/* NOTE: These  MSTP LAG IDs are only used for MSTP  state machine.
+ *       They are not necessarily the same as h/w LAG ID. */
+#define MSTP_LAG_ID_IN_USE   1
+#define VALID_MSTP_LAG_ID(x) ((x)>=mstp_min_lag_id && (x)<=mstp_max_lag_id)
+
+const uint16_t mstp_min_lag_id = 1;
+uint16_t mstp_max_lag_id = 0; // This will be set in mstpd_init_lag_id_pool
+uint16_t *mstp_lag_id_pool = NULL;
+
 struct ovsdb_idl *idl;           /*!< Session handle for OVSDB IDL session. */
 static unsigned int idl_seqno;
 static int system_configured = false;
@@ -192,6 +201,64 @@ int allocate_static_index(char *name)
     }
     return lport_id;
 }
+
+static void
+mstpd_init_lag_id_pool(uint16_t count)
+{
+    if (mstp_lag_id_pool == NULL) {
+        /* Track how many we're allocating. */
+        mstp_max_lag_id = count;
+
+        /* Allocate an extra one to skip LAG ID 0. */
+        mstp_lag_id_pool = (uint16_t *)xcalloc(count+1, sizeof(uint16_t));
+        VLOG_DBG("mstpd: allocated %d LAG IDs", count);
+    }
+} /* mstpd_init_lag_id_pool */
+
+static uint16_t
+mstpd_alloc_lag_id(void)
+{
+    if (mstp_lag_id_pool != NULL) {
+        uint16_t id;
+
+        for (id=mstp_min_lag_id; id<=mstp_max_lag_id; id++) {
+
+            if (mstp_lag_id_pool[id] == MSTP_LAG_ID_IN_USE) {
+                continue;
+            }
+
+            /* Found an available LAG_ID. */
+            mstp_lag_id_pool[id] = MSTP_LAG_ID_IN_USE;
+            return id;
+        }
+    } else {
+        VLOG_ERR("MSTP LAG ID pool not initialized!");
+    }
+
+    /* No free MSTP LAG ID available if we get here. */
+    return 0;
+
+} /* mstpd_alloc_lag_id */
+
+static void
+mstpd_free_lag_id(uint16_t id)
+{
+    if ((mstp_lag_id_pool != NULL) && VALID_MSTP_LAG_ID(id)) {
+        if (mstp_lag_id_pool[id] == MSTP_LAG_ID_IN_USE) {
+            mstp_lag_id_pool[id] = 0;
+        } else {
+            VLOG_ERR("Trying to free an unused MSTP LAGID (%d)!", id);
+        }
+    } else {
+        if (mstp_lag_id_pool == NULL) {
+            VLOG_ERR("Attempt to free MSTP LAG ID when"
+                     "pool is not initialized!");
+        } else {
+            VLOG_ERR("Attempt to free invalid MSTP LAG ID %d!", id);
+        }
+    }
+
+} /* mstpd_free_lag_id */
 
 /**PROC+**********************************************************************
  * Name:     allocate_reserved_id
@@ -374,6 +441,8 @@ mstpd_ovsdb_init(const char *db_path)
     ovsdb_idl_add_column(idl, &ovsrec_port_col_vlan_mode);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_admin);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_hw_config);
+    ovsdb_idl_add_column(idl, &ovsrec_port_col_lacp_status);
+    ovsdb_idl_add_column(idl, &ovsrec_port_col_bond_status);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_interfaces);
 
     ovsdb_idl_add_column(idl, &ovsrec_bridge_col_mstp_instances);
@@ -468,6 +537,9 @@ mstpd_ovsdb_init(const char *db_path)
     ovsdb_idl_add_column(idl, &ovsrec_mstp_common_instance_port_col_oper_edge_port);
     ovsdb_idl_add_column(idl, &ovsrec_mstp_common_instance_port_col_restricted_port_role_disable);
     ovsdb_idl_add_column(idl, &ovsrec_mstp_common_instance_port_col_port_state);
+    /* Initialize MSTP LAG ID pool. */
+    /* OPS_TODO: read # of LAGs from somewhere? */
+    mstpd_init_lag_id_pool(128);
 } /* mstpd_ovsdb_init */
 
 /**PROC+****************************************************************
@@ -913,7 +985,7 @@ send_admin_status_change_msg(bool status)
  *
  * Purpose:  Delete Interface from local cache
  *
- * Params:    none
+ * Params:  shash node object
  *
  * Returns:   none
  *
@@ -924,10 +996,15 @@ del_old_interface(struct shash_node *sh_node)
 {
     if (sh_node) {
         struct iface_data *idp = sh_node->data;
-        free(idp->name);
-        idp_lookup[idp->lport_id] = NULL;
-        free(idp);
-        shash_delete(&all_interfaces, sh_node);
+        if (idp) {
+            if (!VERIFY_LAG_IFNAME(idp->name)) {
+                mstpd_free_lag_id((idp->lport_id - MAX_PPORTS));
+            }
+            free(idp->name);
+            idp_lookup[idp->lport_id] = NULL;
+            free(idp);
+            shash_delete(&all_interfaces, sh_node);
+        }
     }
 } /* del_old_interface */
 
@@ -988,12 +1065,90 @@ add_new_interface(const struct ovsrec_interface *ifrow)
     }
 } /* add_new_interface */
 
+/**
+ * Adds a new interface to daemon's internal data structures.
+ *
+ * Allocates a new iface_data entry. Parses the ifrow and
+ * copies data into new iface_data entry.
+ * Adds the new iface_data entry into all_interfaces shash map.
+ * @param ifrow pointer to interface configuration row in IDL cache.
+ */
+static void
+add_new_lag_interface(const struct ovsrec_port *prow)
+{
+    struct iface_data *idp = NULL;
+    const struct ovsrec_interface *ifrow;
+    const char *link_state = NULL;
+    const char *link_speed = NULL;
+
+
+    /* Allocate structure to save state information for this interface. */
+    idp = xzalloc(sizeof *idp);
+
+    if (!shash_add_once(&all_interfaces, prow->name, idp)) {
+        VLOG_WARN("Interface %s specified twice", prow->name);
+        free(idp);
+    } else {
+
+        /* Save the interface name. */
+        idp->name = xstrdup(prow->name);
+
+        /* Allocate interface index. */
+        idp->lport_id = mstpd_alloc_lag_id() + MAX_PPORTS;
+        //idp->lport_id = allocate_next(port_index, MAX_ENTRIES_IN_POOL);
+        if (idp->lport_id <= 255) {
+            VLOG_ERR("Invalid interface index=%d", idp->lport_id);
+            return;
+        }
+        else {
+            VLOG_DBG("New Interface LPORT INDEX : %d",idp->lport_id);
+        }
+
+        idp->duplex = HALF_DUPLEX;
+        for (int k = 0; k < prow->n_interfaces; k++) {
+            ifrow = prow->interfaces[k];
+            if (ifrow->duplex) {
+                 if (!(strcmp(ifrow->duplex, OVSREC_INTERFACE_DUPLEX_FULL))) {
+                    idp->duplex = FULL_DUPLEX;
+                }
+            }
+        }
+
+        idp->link_state = INTERFACE_LINK_STATE_DOWN;
+        link_state = smap_get(&prow->bond_status, PORT_BOND_STATUS_UP);
+        if (link_state) {
+            if (!(strcmp(link_state, PORT_BOND_STATUS_ENABLED_TRUE))) {
+                idp->link_state = INTERFACE_LINK_STATE_UP;
+            }
+        }
+
+        idp->link_speed = 0;
+        link_speed = smap_get(&prow->lacp_status, PORT_LACP_STATUS_MAP_BOND_SPEED);
+        if (link_speed) {
+            /* There should only be one speed. */
+            idp->link_speed = INTF_TO_MSTP_LINK_SPEED((atoi(link_speed))*1000000);
+        } else {
+            /* static lag case lacp_status:bond_speed is not updated.
+               TODO: set to default speed, once lacp updates speed in bond_status
+               column remove below piece of code.
+             */
+             if (prow->n_interfaces > 0) {
+                 idp->link_speed =  INTF_TO_MSTP_LINK_SPEED(1000000000);
+             } else {
+                 idp->link_speed = 0;
+             }
+        }
+        idp_lookup[idp->lport_id] = idp;
+        VLOG_DBG("Created local data for interface %s", prow->name);
+    }
+} /* add_new_interface */
+
 /**PROC+****************************************************************
  * Name:    send_link_state_change_msg
  *
  * Purpose:  Send link state update to daemon
  *
- * Params:    none
+ * Params: iface_data object
  *
  * Returns:   none
  *
@@ -1004,14 +1159,10 @@ static void
 send_link_state_change_msg(struct iface_data *info_ptr)
 {
     int msgSize = 0;
-    mstpd_message *msg;
+    mstpd_message *msg = NULL;
     mstp_lport_state_change *event;
     msgSize = sizeof(mstp_lport_state_change)+sizeof(mstpd_message);
     msg = (mstpd_message *)alloc_msg(msgSize);
-    if (NULL == msg) {
-        VLOG_ERR("Out of memory for MSTP timer message.");
-        return;
-    }
 
     if (msg != NULL) {
 	    msg->msg_type = ((info_ptr->link_state == INTERFACE_LINK_STATE_UP) ?
@@ -1021,17 +1172,84 @@ send_link_state_change_msg(struct iface_data *info_ptr)
         event->lportname = info_ptr->name;
         event->lportindex = info_ptr->lport_id;
         mstpd_send_event(msg);
+    } else {
+      VLOG_ERR("Out of memory for MSTP link state change message.");
+      return;
     }
 } /* send_link_state_change_msg */
 
-/**PROC+****************************************************************
+static void
+update_lag_interface(const struct ovsrec_port *prow,
+                     struct iface_data *idp)
+{
+    /* Check for changes to row. */
+    if (OVSREC_IDL_IS_ROW_INSERTED(prow, idl_seqno) ||
+        OVSREC_IDL_IS_ROW_MODIFIED(prow, idl_seqno)) {
+        enum ovsrec_interface_link_state_e new_link_state;
+        const struct ovsrec_interface *ifrow;
+        PORT_DUPLEX new_duplex = HALF_DUPLEX;
+        const char *link_state = NULL;
+        const char *link_speed = NULL;
+
+        for (int k = 0; k < prow->n_interfaces; k++) {
+            ifrow = prow->interfaces[k];
+            if (ifrow->duplex) {
+                 if (!(strcmp(ifrow->duplex, OVSREC_INTERFACE_DUPLEX_FULL))) {
+                    new_duplex = FULL_DUPLEX;
+                }
+            }
+        }
+        if ((new_duplex != idp->duplex)) {
+            idp->duplex = new_duplex;
+            VLOG_DBG("Lag %s link duplex changed in DB: "
+                     " new_duplex=%s ",
+                     prow->name,
+                     (idp->duplex == FULL_DUPLEX ? "full" : "half"));
+        }
+
+        new_link_state = INTERFACE_LINK_STATE_DOWN;
+        link_state = smap_get(&prow->bond_status, PORT_BOND_STATUS_UP);
+        if (link_state) {
+            if (!(strcmp(link_state, PORT_BOND_STATUS_ENABLED_TRUE))) {
+                new_link_state = INTERFACE_LINK_STATE_UP;
+            }
+        }
+        link_speed = smap_get(&prow->lacp_status, PORT_LACP_STATUS_MAP_BOND_SPEED);
+        if (link_speed) {
+            /* dynamic lag speed. */
+            idp->link_speed = INTF_TO_MSTP_LINK_SPEED((atoi(link_speed))*1000000);
+        } else {
+            /* static lag case lacp_status:bond_speed is not updated.
+               TODO: set to default speed, once lacp updates speed in bond_status
+               column remove below piece of code.
+             */
+             if (prow->n_interfaces > 0) {
+                 idp->link_speed =  INTF_TO_MSTP_LINK_SPEED(1000000000);
+             } else {
+                 idp->link_speed = 0;
+             }
+        }
+
+        if ((new_link_state != idp->link_state)) {
+            idp->link_state = new_link_state;
+            VLOG_DBG("Lag %s link state changed in DB: "
+                     " new_link=%s ",
+                     ifrow->name,
+                     (idp->link_state == INTERFACE_LINK_STATE_UP ? "up" : "down"));
+            send_link_state_change_msg(idp);
+
+        }
+    }
+}
+
+/***********************************************************************
  * Name:    update_interface_cache
  *
  * Purpose:  Update local cache for interface
  *
  * Params:    none
  *
- * Returns:   none
+ * Returns: returns number of interfcaes updated
  *
  **PROC-*****************************************************************/
 static int
@@ -1040,8 +1258,8 @@ update_interface_cache(void)
 
     VLOG_DBG("Update Interface cache");
     struct shash sh_idl_interfaces;
-    const struct ovsrec_interface *ifrow;
-    struct shash_node *sh_node, *sh_next;
+    const struct ovsrec_port *portrow = NULL;
+    struct shash_node *sh_node = NULL, *sh_next = NULL;
     int rc = 0;
     /* Collect all the interfaces in the DB. */
     shash_init(&sh_idl_interfaces);
@@ -1070,9 +1288,20 @@ update_interface_cache(void)
         struct iface_data *idp =
             shash_find_data(&all_interfaces, sh_node->name);
         if (!idp) {
-            VLOG_DBG("Found an added interface %s", sh_node->name);
-            add_new_interface(sh_node->data);
-            rc++;
+            if (!VERIFY_LAG_IFNAME(sh_node->name)) {
+                VLOG_DBG("Found an added LAG interface %s", sh_node->name);
+                add_new_lag_interface(sh_node->data);
+                rc++;
+            } else {
+                VLOG_DBG("Found an added interface %s", sh_node->name);
+                prow = sh_node->data;
+                if (!prow) {
+                    continue;
+                }
+                ifrow = prow->interfaces[0];
+                add_new_interface(ifrow);
+                rc++;
+            }
         }
     }
     /* Check for changes in the interface row entries. */
@@ -1081,33 +1310,38 @@ update_interface_cache(void)
         const struct ovsrec_interface *ifrow =
             shash_find_data(&sh_idl_interfaces, sh_node->name);
 
-        /* Check for changes to row. */
-        if (OVSREC_IDL_IS_ROW_INSERTED(ifrow, idl_seqno) ||
-            OVSREC_IDL_IS_ROW_MODIFIED(ifrow, idl_seqno)) {
-            enum ovsrec_interface_link_state_e new_link_state;
-            PORT_DUPLEX new_duplex = HALF_DUPLEX;
-            if (ifrow->duplex) {
-                 if (!(strcmp(ifrow->duplex, OVSREC_INTERFACE_DUPLEX_FULL))) {
-                    new_duplex = FULL_DUPLEX;
+        if (!VERIFY_LAG_IFNAME(prow->name)) {
+            /* update lag interface */
+            update_lag_interface(prow, idp);
+        } else {
+            ifrow = prow->interfaces[0];
+            /* Check for changes to row. */
+            if (OVSREC_IDL_IS_ROW_INSERTED(ifrow, idl_seqno) ||
+                OVSREC_IDL_IS_ROW_MODIFIED(ifrow, idl_seqno)) {
+                enum ovsrec_interface_link_state_e new_link_state;
+                PORT_DUPLEX new_duplex = HALF_DUPLEX;
+                if (ifrow->duplex) {
+                     if (!(strcmp(ifrow->duplex, OVSREC_INTERFACE_DUPLEX_FULL))) {
+                        new_duplex = FULL_DUPLEX;
+                    }
                 }
-            }
-            if ((new_duplex != idp->duplex)) {
-                idp->duplex = new_duplex;
-                VLOG_DBG("Interface %s link duplex changed in DB: "
-                         " new_duplex=%s ",
-                         ifrow->name,
-                         (idp->duplex == FULL_DUPLEX ? "full" : "half"));
-            }
-            new_link_state = INTERFACE_LINK_STATE_DOWN;
-            if (ifrow->link_state ) {
-                if (!(strcmp(ifrow->link_state, OVSREC_INTERFACE_LINK_STATE_UP))) {
-                    new_link_state = INTERFACE_LINK_STATE_UP;
+                if ((new_duplex != idp->duplex)) {
+                    idp->duplex = new_duplex;
+                    VLOG_DBG("Interface %s link duplex changed in DB: "
+                             " new_duplex=%s ",
+                             ifrow->name,
+                             (idp->duplex == FULL_DUPLEX ? "full" : "half"));
                 }
-            }
-            if (ifrow->n_link_speed > 0) {
-                /* There should only be one speed. */
-                idp->link_speed = INTF_TO_MSTP_LINK_SPEED(ifrow->link_speed[0]);
-            }
+                new_link_state = INTERFACE_LINK_STATE_DOWN;
+                if (ifrow->link_state ) {
+                    if (!(strcmp(ifrow->link_state, OVSREC_INTERFACE_LINK_STATE_UP))) {
+                        new_link_state = INTERFACE_LINK_STATE_UP;
+                    }
+                }
+                if (ifrow->n_link_speed > 0) {
+                    /* There should only be one speed. */
+                    idp->link_speed = INTF_TO_MSTP_LINK_SPEED(ifrow->link_speed[0]);
+                }
 
             if ((new_link_state != idp->link_state)) {
                 idp->link_state = new_link_state;
@@ -1117,6 +1351,7 @@ update_interface_cache(void)
                          (idp->link_state == INTERFACE_LINK_STATE_UP ? "up" : "down"));
                 send_link_state_change_msg(idp);
 
+                }
             }
         }
     }
@@ -1520,7 +1755,7 @@ mstpd_ovs_main_thread(void *arg)
  *
  * Purpose: Get MAC address for interface
  *
- * Params:    none
+ * Params:  lport id
  *
  * Returns:   none
  *
@@ -1529,20 +1764,22 @@ mstpd_ovs_main_thread(void *arg)
 const char* intf_get_mac_addr(uint16_t lport)
 {
     const struct ovsrec_interface *ifrow = NULL;
+    const struct ovsrec_port *prow = NULL;
     struct iface_data *idp = NULL;
     const char *mac = NULL;
-    MSTP_OVSDB_LOCK;
-    assert((lport != 0) && (lport <= MAX_LPORTS));
 
+    assert((lport != 0) && (lport <= MAX_LPORTS));
+    MSTP_OVSDB_LOCK;
     idp = find_iface_data_by_index(lport);
     if (idp == NULL)
     {
         assert(false);
     }
-    OVSREC_INTERFACE_FOR_EACH(ifrow, idl)
+    OVSREC_PORT_FOR_EACH(prow, idl)
     {
-        if(strcmp(ifrow->name,idp->name)==0)
+        if(strcmp(prow->name,idp->name)==0)
         {
+            ifrow = prow->interfaces[0];
             mac = smap_get(&ifrow->hw_intf_info,"mac_addr");
             VLOG_DBG("Util name : %s, mac: %s ",ifrow->name,mac);
             MSTP_OVSDB_UNLOCK;
@@ -2259,6 +2496,47 @@ util_get_cist_port(const char *if_name) {
     return cist_port_row;
 }
 
+
+/**PROC+****************************************************************
+ * Name:    mstpd_is_valid_port_row
+ *
+ * Purpose:  validates port row whether mstpd required or not
+ *
+ * Params:    none
+ *
+ * Returns:   none
+ *
+ **PROC-*****************************************************************/
+bool
+mstpd_is_valid_port_row(const struct ovsrec_port *prow)
+{
+    bool retval = false;
+    const struct ovsrec_interface *ifrow;
+
+    if(!prow) {
+        return retval;
+    }
+
+    if (!VERIFY_LAG_IFNAME(prow->name)) {
+            retval = true;
+    } else if (prow->n_interfaces == 1) {
+        ifrow = prow->interfaces[0];
+        if (!ifrow) {
+            retval = false;
+        } else {
+            if (strncmp(ifrow->type,OVSREC_INTERFACE_TYPE_SYSTEM,
+                strlen(ifrow->type))!=0) {
+                retval = false;
+            } else {
+                retval = true;
+            }
+        }
+    } else {
+        retval = false;
+    }
+
+    return retval;
+}
 
 /**PROC+***********************************************************
  * Name:    util_add_default_ports_to_mist
