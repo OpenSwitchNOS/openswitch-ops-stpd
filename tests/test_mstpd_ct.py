@@ -53,7 +53,7 @@ class mstpdTests(OpsVsiTest):
         debug(output)
 
         success = 0
-        if 'Vlans mapped:  2,1' in output or 'Vlans mapped:  1,2' in output:
+        if 'Vlans mapped:  1-4095' in output:
             success = 1
             info('\n### Passed: mstpd_add_vlan_to_cist ###')
         else:
@@ -72,7 +72,7 @@ class mstpdTests(OpsVsiTest):
         output += s1.cmd("echo")
         debug(output)
 
-        assert ('Vlans mapped:  1' in output),\
+        assert ('Vlans mapped:  1-4095' in output),\
             "Failed: mstpd_remove_vlan_from_cist"
 
     def mstpd_add_ports_to_cist(self):
