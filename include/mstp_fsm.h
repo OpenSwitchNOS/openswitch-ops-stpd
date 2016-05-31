@@ -22,6 +22,7 @@
 #include "mstp_cmn.h"
 #include "mstp_recv.h"
 #include <assert.h>
+#include "mstp_mapping.h"
 
 #define packed
 
@@ -37,6 +38,7 @@
 #define PACKED
 #endif
 
+<<<<<<< HEAD
 /* switch types */
 typedef uint16_t PORT_t;         /* Generic port number (either an Lport or Pport    */
 typedef PORT_t   LPORT_t;        /* logical port number  (1 to MAX_LPORTS)   */
