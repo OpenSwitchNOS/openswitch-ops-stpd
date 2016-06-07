@@ -2046,6 +2046,7 @@ mstp_newTcWhile(MSTID_t mstid, LPORT_t lport)
    STP_ASSERT(MSTP_COMM_PORT_PTR(lport));
    STP_ASSERT((mstid == MSTP_CISTID) ? (MSTP_CIST_PORT_PTR(lport) != NULL) :
                                    (MSTP_MSTI_PORT_PTR(mstid, lport) != NULL));
+   VLOG_INFO("MSTP: New TcWhile : %d",tcWhileVal);
 
    /*------------------------------------------------------------------------
     * Get current value of the 'tcWhile' timer
@@ -2053,6 +2054,7 @@ mstp_newTcWhile(MSTID_t mstid, LPORT_t lport)
    tcWhileVal = (mstid == MSTP_CISTID) ?
                  MSTP_CIST_PORT_PTR(lport)->tcWhile :
                  MSTP_MSTI_PORT_PTR(mstid, lport)->tcWhile;
+   VLOG_INFO("MSTP: New TcWhile : %d",tcWhileVal);
 
    /*------------------------------------------------------------------------
     * If current value of the 'tcWhile' timer is zero than compute a new value
@@ -2074,6 +2076,7 @@ mstp_newTcWhile(MSTID_t mstid, LPORT_t lport)
                                 (mstid == MSTP_CISTID) ?
                                  MSTP_PORT_NEW_INFO :
                                  MSTP_PORT_NEW_INFO_MSTI);
+         VLOG_INFO("If MSTP: New TcWhile : %d",tcWhileVal);
       }
       else
       {/* 'tcWhile' is zero and 'sendRSTP' is FALSE,
@@ -2082,6 +2085,7 @@ mstp_newTcWhile(MSTID_t mstid, LPORT_t lport)
         * the value of either 'newInfo' or 'newInfoMsti' */
          tcWhileVal = MSTP_CIST_ROOT_TIMES.maxAge +
                       MSTP_CIST_ROOT_TIMES.fwdDelay;
+         VLOG_INFO("Else MSTP: New TcWhile : %d",tcWhileVal);
       }
 
       /*---------------------------------------------------------------------
