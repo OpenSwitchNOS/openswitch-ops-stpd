@@ -5999,6 +5999,7 @@ mstp_updtRolesMsti(MSTID_t mstid)
    if(rootTimeChange)
    {
       mstp_updtMstiRootInfoChg(mstid);
+      mstp_util_set_msti_table_value(REMAINING_HOPS, MSTP_MSTI_ROOT_TIMES(mstid).hops, mstid);
    }
 
    /*-------------------------------------------------------------------------

@@ -468,6 +468,7 @@ mstpd_ovsdb_init(const char *db_path)
     ovsdb_idl_add_column(idl, &ovsrec_mstp_instance_col_topology_change_count);
     ovsdb_idl_add_column(idl, &ovsrec_mstp_instance_col_vlans);
     ovsdb_idl_add_column(idl, &ovsrec_mstp_instance_col_root_priority);
+    ovsdb_idl_add_column(idl, &ovsrec_mstp_instance_col_remaining_hops);
 
     /* mstp instance port table */
     ovsdb_idl_add_column(idl, &ovsrec_mstp_instance_port_col_designated_bridge);
@@ -3363,6 +3364,9 @@ mstp_util_set_msti_table_value (const char *key, int64_t value, int mstid) {
     }
     else if (strcmp(key, TOP_CHANGE_CNT) == 0) {
         ovsrec_mstp_instance_set_topology_change_count(msti_row, &value, 1);
+    }
+    else if (strcmp(key, REMAINING_HOPS) == 0) {
+        ovsrec_mstp_instance_set_remaining_hops(msti_row, &value, 1);
     }
 }
 
