@@ -34,6 +34,7 @@
 #include <vswitch-idl.h>
 #include <openvswitch/vlog.h>
 #include <assert.h>
+#include <eventlog.h>
 
 #include "mstp_fsm.h"
 #include "mstp_recv.h"
@@ -194,6 +195,8 @@ mstp_protocolData(MSTP_RX_PDU *pkt)
 
       intf_get_port_name(lport, portName);
       VLOG_DBG("BPDU received on admin edge port %s",portName);
+      log_event("MSTP_BPDU_RECVD_ON_EDGE_PORT",
+          EV_KV("port", "%s", portName));
    }
 
    /*------------------------------------------------------------------------
@@ -381,6 +384,9 @@ mstp_processUnauthorizedBpdu(MSTP_RX_PDU *pkt, TRAP_SOURCE_TYPE_e source)
          else
             logStr[0] = '\0';
          VLOG_DBG("port %s disabled %s- BPDU received on protected port.",lport_name,logStr);
+         log_event("MSTP_ERROR_DISABLED_PORT",
+             EV_KV("port", "%s", lport_name),
+             EV_KV("sec", "%s", logStr));
       }
 
       /*---------------------------------------------------------------------
