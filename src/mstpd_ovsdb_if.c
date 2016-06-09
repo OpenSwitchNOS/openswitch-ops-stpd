@@ -2562,7 +2562,6 @@ util_add_default_ports_to_mist() {
     int64_t admin_path_cost = 0;
     struct ovsdb_idl_txn *txn = NULL;
     int i = 0, j = 0,k = 0;
-    uint64_t msti_port_count = 0;
 
     bridge_row = ovsrec_bridge_first(idl);
     if (!bridge_row) {
@@ -2628,7 +2627,6 @@ util_add_default_ports_to_mist() {
                 ovsdb_idl_txn_destroy(txn);
                 return;
             }
-            msti_port_count++;
 
 
             /* FILL the default values for CIST_port entry */
@@ -2651,7 +2649,7 @@ util_add_default_ports_to_mist() {
             mstp_port_info[j++] = mstp_port_row;
         }
         ovsrec_mstp_instance_set_mstp_instance_ports (mstp_row,
-                mstp_port_info, msti_port_count);
+                mstp_port_info, bridge_row->n_ports-1);
         free(mstp_port_info);
         ovsdb_idl_txn_commit_block(txn);
         ovsdb_idl_txn_destroy(txn);
@@ -2689,7 +2687,6 @@ util_add_default_ports_to_cist() {
     bool root_guard_disable = false;
     bool loop_guard_disable = false;
     bool bpdu_filter_disable = false;
-    uint64_t cist_port_count = 0;
 
 
     txn = ovsdb_idl_txn_create(idl);
@@ -2757,7 +2754,6 @@ util_add_default_ports_to_cist() {
             ovsdb_idl_txn_destroy(txn);
             return;
         }
-        cist_port_count++;
 
         /* FILL the default values for CIST_port entry */
         ovsrec_mstp_common_instance_port_set_port( cist_port_row,
@@ -2792,7 +2788,7 @@ util_add_default_ports_to_cist() {
         cist_port_info[j++] = cist_port_row;
     }
     ovsrec_mstp_common_instance_set_mstp_common_instance_ports (cist_row,
-                cist_port_info, cist_port_count);
+                cist_port_info, bridge_row->n_ports-1);
     free(cist_port_info);
     ovsdb_idl_txn_commit_block(txn);
     ovsdb_idl_txn_destroy(txn);
