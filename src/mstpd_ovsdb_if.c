@@ -1124,15 +1124,12 @@ add_new_lag_interface(const struct ovsrec_port *prow)
         }
 
         idp->link_speed = 0;
-        link_speed = smap_get(&prow->lacp_status, PORT_LACP_STATUS_MAP_BOND_SPEED);
+        link_speed = smap_get(&prow->bond_status, PORT_BOND_STATUS_MAP_BOND_SPEED);
         if (link_speed) {
             /* There should only be one speed. */
-            idp->link_speed = INTF_TO_MSTP_LINK_SPEED((atoi(link_speed))*1000000);
+            idp->link_speed = INTF_TO_MSTP_LINK_SPEED(atoi(link_speed));
         } else {
-            /* static lag case lacp_status:bond_speed is not updated.
-               TODO: set to default speed, once lacp updates speed in bond_status
-               column remove below piece of code.
-             */
+            /* set to default speed */
              if (prow->n_interfaces > 0) {
                  idp->link_speed =  INTF_TO_MSTP_LINK_SPEED(1000000000);
              } else {
@@ -1215,15 +1212,12 @@ update_lag_interface(const struct ovsrec_port *prow,
                 new_link_state = INTERFACE_LINK_STATE_UP;
             }
         }
-        link_speed = smap_get(&prow->lacp_status, PORT_LACP_STATUS_MAP_BOND_SPEED);
+        link_speed = smap_get(&prow->bond_status, PORT_BOND_STATUS_MAP_BOND_SPEED);
         if (link_speed) {
             /* dynamic lag speed. */
-            idp->link_speed = INTF_TO_MSTP_LINK_SPEED((atoi(link_speed))*1000000);
+            idp->link_speed = INTF_TO_MSTP_LINK_SPEED(atoi(link_speed));
         } else {
-            /* static lag case lacp_status:bond_speed is not updated.
-               TODO: set to default speed, once lacp updates speed in bond_status
-               column remove below piece of code.
-             */
+            /* set to default speed */
              if (prow->n_interfaces > 0) {
                  idp->link_speed =  INTF_TO_MSTP_LINK_SPEED(1000000000);
              } else {
