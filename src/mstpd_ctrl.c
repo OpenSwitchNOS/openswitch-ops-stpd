@@ -260,8 +260,8 @@ mstpd_rx_pdu_thread(void *data)
                              (unsigned int *)&clientlen);
             if (count < 0) {
                 /* General socket error. */
-                VLOG_ERR("Read failed, fd=%d: errno=%d",
-                         idp->pdu_sockfd, errno);
+                VLOG_ERR("Read failed, fd=%d: errno=%s",
+                         idp->pdu_sockfd, strerror(errno));
                 free(pmsg);
                 continue;
 
