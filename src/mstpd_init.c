@@ -949,8 +949,6 @@ mstp_clearBridgeGlobalData(void)
 {
    LPORT_t lport;
 
-   STP_ASSERT(MSTP_ENABLED);
-
    /*------------------------------------------------------------------------
     * Clear MSTP common port data (used by both CIST and MSTIs)
     *------------------------------------------------------------------------*/

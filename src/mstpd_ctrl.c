@@ -135,6 +135,25 @@ mstp_init_event_rcvr(void)
 } /* mstp_init_event_rcvr */
 
 int
+mstp_free_event_queue(void)
+{
+    int rc;
+    int free_msg_count = 0;
+
+    rc = mqueue_free(&mstpd_main_rcvq,&free_msg_count);
+    if (rc) {
+        VLOG_ERR("Failed MSTP main free queue: %s",
+                 strerror(rc));
+    }
+    else
+    {
+        VLOG_INFO("MSTP FREE_MESSAGE Queue count : %d", free_msg_count);
+    }
+
+    return rc;
+} /* mstp_init_event_rcvr */
+
+int
 mstpd_send_event(mstpd_message *pmsg)
 {
     int rc;
@@ -241,8 +260,8 @@ mstpd_rx_pdu_thread(void *data)
                              (unsigned int *)&clientlen);
             if (count < 0) {
                 /* General socket error. */
-                VLOG_ERR("Read failed, fd=%d: errno=%d",
-                         idp->pdu_sockfd, errno);
+                VLOG_ERR("Read failed, fd=%d: errno=%s",
+                         idp->pdu_sockfd, strerror(errno));
                 free(pmsg);
                 continue;
 
@@ -483,7 +502,7 @@ mstpd_protocol_thread(void *arg)
             update_port_entry_in_cist_mstp_instances(port,e_mstpd_lport_add);
             update_port_entry_in_msti_mstp_instances(port,e_mstpd_lport_add);
             update_mstp_on_lport_add(lport);
-            if (mstp_enable)
+            if (MSTP_ENABLED)
             {
                 register_stp_mcast_addr(lport);
                 mstp_addLport(lport);
@@ -503,12 +522,12 @@ mstpd_protocol_thread(void *arg)
             char port[20] = {0};
             l2port_delete = (mstp_lport_delete *)pmsg->msg;
             lport = l2port_delete->lportindex;
+            strncpy(port,l2port_delete->lportname,PORTNAME_LEN);
             VLOG_DBG("Received an l2port delete event : %d",lport);
             clear_port(&l2ports,lport);
-            intf_get_port_name(lport,port);
             update_port_entry_in_cist_mstp_instances(port,e_mstpd_lport_delete);
             update_port_entry_in_msti_mstp_instances(port,e_mstpd_lport_delete);
-            if (mstp_enable)
+            if (MSTP_ENABLED)
             {
                 deregister_stp_mcast_addr(lport);
                 mstp_removeLport(lport);
@@ -845,6 +864,7 @@ mstp_checkDynReconfigChanges(void)
    }
 
    MSTP_DYN_CFG_PRINTF("!DYN RECONFIG: %s", "start");
+   Spanning = false;
 
    /*------------------------------------------------------------------------
     * Remove from the queue all pending MSTP messages to DB
@@ -1904,11 +1924,11 @@ mstp_informDBOnPortStateChange(uint32_t operation)
                  char port[20] = {0};
                  intf_get_port_name(lport,port);
                  if (m->mstid != 0){
-                     mstp_util_set_msti_port_table_string("flush_mac","enable",m->mstid,lport);
+                     mstp_util_msti_flush_mac_address(m->mstid,lport);
                  }
                  else
                  {
-                     mstp_util_set_cist_port_table_string(port,"flush_mac","enable");
+                     mstp_util_cist_flush_mac_address(port);
                  }
              }
          }

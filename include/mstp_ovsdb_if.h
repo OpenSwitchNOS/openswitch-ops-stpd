@@ -118,6 +118,7 @@ typedef struct mstp_msti_config {
 
 typedef struct mstp_msti_port_config {
     uint16_t port;
+    char port_name[PORTNAME_LEN];
     uint16_t mstid;
     uint32_t priority;
     uint32_t path_cost;
@@ -167,6 +168,7 @@ typedef struct mstp_cist_stat_info {
 
 typedef struct mstp_cist_port_config {
     uint16_t port;
+    char port_name[PORTNAME_LEN];
     uint16_t port_priority;
     uint32_t admin_path_cost;
     bool admin_edge_port_disable;
@@ -246,10 +248,12 @@ void mstp_util_set_cist_table_value (const char *key, int64_t value);
 void mstp_util_set_cist_table_string (const char *key, const char *string);
 void mstp_util_set_cist_port_table_value (const char *if_name, const char *key, int64_t value);
 void mstp_util_set_cist_port_table_string (const char *if_name, const char *key, char *string);
+void mstp_util_cist_flush_mac_address(const char * port_name);
 void mstp_util_set_msti_table_string (const char *key, const char *string, int mstid);
 void mstp_util_set_msti_table_value (const char *key, int64_t value, int mstid);
 void mstp_util_set_msti_port_table_value (const char *key, int64_t value, int mstid, int lport);
 void mstp_util_set_msti_port_table_string (const char *key, char *string, int mstid, int lport);
+void mstp_util_msti_flush_mac_address(int mstid,int lport);
 void handle_vlan_add_in_mstp_config(int vlan);
 void handle_vlan_delete_in_mstp_config(int vlan);
 void update_port_entry_in_cist_mstp_instances(char *name, int operation);

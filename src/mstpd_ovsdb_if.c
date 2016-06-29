@@ -50,6 +50,7 @@
 #include <net/if.h>
 #include <assert.h>
 
+#include "mstp.h"
 #include "mstp_ovsdb_if.h"
 #include "mstp_cmn.h"
 #include "mqueue.h"
@@ -108,17 +109,8 @@ uint16_t n_msti = 0;
  */
 static struct shash all_interfaces = SHASH_INITIALIZER(&all_interfaces);
 
-/**
- * A hash map of daemon's internal data for all the ports maintained by mstpd.
- **/
-static struct shash all_ports = SHASH_INITIALIZER(&all_ports);
-
-
 /* Mapping of all the VLANs. */
 static struct shash all_vlans = SHASH_INITIALIZER(&all_vlans);
-
-/* Mapping of all the MSTP Instances. */
-static struct shash all_mstp_instances = SHASH_INITIALIZER(&all_mstp_instances);
 
 /*************************************************************************//**
  * @ingroup mstpd_ovsdb_if
@@ -438,13 +430,13 @@ mstpd_ovsdb_init(const char *db_path)
 
     ovsdb_idl_add_table(idl, &ovsrec_table_port);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_name);
-    ovsdb_idl_add_column(idl, &ovsrec_port_col_tag);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_vlan_mode);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_admin);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_hw_config);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_lacp_status);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_bond_status);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_interfaces);
+    ovsdb_idl_add_column(idl, &ovsrec_port_col_macs_invalid_on_vlans);
 
     ovsdb_idl_add_column(idl, &ovsrec_bridge_col_mstp_instances);
     ovsdb_idl_add_column(idl, &ovsrec_bridge_col_mstp_common_instance);
@@ -468,6 +460,7 @@ mstpd_ovsdb_init(const char *db_path)
     ovsdb_idl_add_column(idl, &ovsrec_mstp_instance_col_topology_change_count);
     ovsdb_idl_add_column(idl, &ovsrec_mstp_instance_col_vlans);
     ovsdb_idl_add_column(idl, &ovsrec_mstp_instance_col_root_priority);
+    ovsdb_idl_add_column(idl, &ovsrec_mstp_instance_col_remaining_hops);
 
     /* mstp instance port table */
     ovsdb_idl_add_column(idl, &ovsrec_mstp_instance_port_col_designated_bridge);
@@ -928,7 +921,7 @@ send_l2port_add_msg(uint32_t lport)
  **PROC-*****************************************************************/
 
 static void
-send_l2port_delete_msg(uint32_t lport)
+send_l2port_delete_msg(uint32_t lport, char *name)
 {
     VLOG_DBG("L2port delete send event : %d", lport);
     int msgSize = 0;
@@ -944,6 +937,7 @@ send_l2port_delete_msg(uint32_t lport)
         msg->msg_type = e_mstpd_lport_delete;
         event = (mstp_lport_delete *)(msg+1);
         event->lportindex = lport;
+        strncpy(event->lportname,name,PORTNAME_LEN);
         mstpd_send_event(msg);
     }
 }
@@ -1001,6 +995,7 @@ del_old_interface(struct shash_node *sh_node)
             if (!VERIFY_LAG_IFNAME(idp->name)) {
                 mstpd_free_lag_id((idp->lport_id - MAX_PPORTS));
             }
+            deregister_stp_mcast_addr(idp->lport_id);
             free(idp->name);
             idp_lookup[idp->lport_id] = NULL;
             free(idp);
@@ -1313,6 +1308,11 @@ update_interface_cache(void)
         const struct ovsrec_interface *ifrow;
         const struct ovsrec_port *prow =
             shash_find_data(&sh_idl_interfaces, sh_node->name);
+        if (!prow)
+        {
+            VLOG_DBG("Port row %s is not found, will be deleted at the end of reconfigure",sh_node->name);
+            continue;
+        }
 
         if (!VERIFY_LAG_IFNAME(prow->name)) {
             /* update lag interface */
@@ -1427,6 +1427,9 @@ static int update_l2port_cache(void)
                         lport = find_next_port_set(&delPortMap, lport))
                 {
                     int j = 0;
+                    char port_name[PORTNAME_LEN]= {0};
+                    strncpy(port_name,cist_port_lookup[lport]->port_name,PORTNAME_LEN);
+                    send_l2port_delete_msg(lport,cist_port_lookup[lport]->port_name);
                     free(cist_port_lookup[lport]);
                     cist_port_lookup[lport] = NULL;
                     for(j = 1; j <= MSTP_INSTANCES_MAX; j++)
@@ -1437,7 +1440,6 @@ static int update_l2port_cache(void)
                             msti_port_lookup[j][lport] = NULL;
                         }
                     }
-                    send_l2port_delete_msg(lport);
                 }
             }
             if(are_any_ports_set(&addPortMap))
@@ -1631,6 +1633,7 @@ mstpd_reconfigure(void)
     if (mstp_global_config_update()) {
         rc++;
     }
+
     /* Update IDL sequence # after we've handled everything. */
     idl_seqno = new_idl_seqno;
 
@@ -1956,7 +1959,7 @@ int mstp_cist_config_update(void) {
         clear_vid_map(&cist_vlan_list);
         for (i = 0; i < cist_row->n_vlans; i++) {
             if (cist_row->vlans[i]) {
-            vlan_row = cist_row->vlans[i];
+                vlan_row = cist_row->vlans[i];
             }
             set_vid(&cist_vlan_list,vlan_row->id);
         }
@@ -2029,6 +2032,7 @@ int mstp_cist_port_config_update(void) {
             {
                 struct mstp_cist_port_config *cist_port = NULL;
                 cist_port = xzalloc(sizeof(mstp_cist_port_config));
+                strncpy(cist_port->port_name,idp->name,PORTNAME_LEN);
                 cist_port->port_priority = *cist_port_row->port_priority;
                 cist_port->admin_path_cost = *cist_port_row->admin_path_cost;
                 cist_port->bpdus_rx_enable = *cist_port_row->bpdus_rx_enable;
@@ -2291,6 +2295,7 @@ int mstp_msti_port_update_config(void)
                 {
                     struct mstp_msti_port_config *msti_port = NULL;
                     msti_port = xzalloc(sizeof(struct mstp_msti_port_config));
+                    strncpy(msti_port->port_name,idp->name,PORTNAME_LEN);
                     msti_port->priority = *mstp_inst_port->port_priority;
                     msti_port->path_cost = *mstp_inst_port->admin_path_cost;
                     msti_port->port = lport;
@@ -2407,6 +2412,48 @@ void clear_mstp_msti_config() {
         }
     }
 }
+
+/**PROC+***********************************************************
+ * Name:    clear_interface_cache
+ *
+ * Purpose: Clear Interface cache
+ *
+ * Params:    none
+ *
+ * Returns:   none
+ *
+ **PROC-*****************************************************************/
+
+void clear_interface_cache()
+{
+    struct shash_node *sh_node = NULL, *sh_next = NULL;
+ /* Delete Interfaces. */
+    SHASH_FOR_EACH_SAFE(sh_node, sh_next, &all_interfaces) {
+            del_old_interface(sh_node);
+    }
+}
+
+/**PROC+***********************************************************
+ * Name:    clear_vlan_cache
+ *
+ * Purpose: Clear VLAN cache
+ *
+ * Params:    none
+ *
+ * Returns:   none
+ *
+ **PROC-*****************************************************************/
+
+void clear_vlan_cache()
+{
+    struct shash_node *sh_node = NULL, *sh_next = NULL;
+ /* Delete VLANS. */
+    SHASH_FOR_EACH_SAFE(sh_node, sh_next, &all_vlans) {
+            del_old_vlan(sh_node);
+    }
+}
+
+
 /**PROC+***********************************************************
  * Name:    clear_mstp_msti_port_config
  *
@@ -2444,11 +2491,21 @@ void clear_mstp_msti_port_config() {
 void
 mstp_config_reinit() {
     MSTP_OVSDB_LOCK;
+    mstp_free_event_queue();
     clear_mstp_global_config();
     clear_mstp_cist_config();
     clear_mstp_cist_port_config();
     clear_mstp_msti_config();
     clear_mstp_msti_port_config();
+    clear_interface_cache();
+    clear_port_map(&l2ports);
+    clear_vlan_cache();
+    clearBitmap(&mstp_instance_map.map[0],MSTP_INSTANCES_MAX);
+    n_l2ports = 1;
+    n_msti = 0;
+    update_interface_cache();
+    update_l2port_cache();
+    update_vlan_cache();
     mstp_cist_config_update();
     mstp_cist_port_config_update();
     mstp_msti_update_config();
@@ -2865,7 +2922,14 @@ util_mstp_instance_status_clean(time_t curr_time, const struct ovsrec_system *sy
                 assert(0);
                 return;
             }
-            ovsrec_mstp_instance_port_set_port_state( mstp_port_row, MSTP_STATE_BLOCK);
+            if (!strcmp(mstp_port_row->port->admin,OVSREC_PORT_ADMIN_UP))
+            {
+                ovsrec_mstp_instance_port_set_port_state( mstp_port_row, MSTP_STATE_FORWARD);
+            }
+            else
+            {
+                ovsrec_mstp_instance_port_set_port_state( mstp_port_row, MSTP_STATE_BLOCK);
+            }
             ovsrec_mstp_instance_port_set_port_role( mstp_port_row, MSTP_ROLE_DISABLE);
             ovsrec_mstp_instance_port_set_designated_root(mstp_port_row, system_row->system_mac);
             ovsrec_mstp_instance_port_set_designated_root_priority(mstp_port_row, &def_zero, 1);
@@ -2935,7 +2999,14 @@ util_mstp_common_instance_status_clean(time_t curr_time, const struct ovsrec_sys
     /* MSTP common instance port clean */
     OVSREC_MSTP_COMMON_INSTANCE_PORT_FOR_EACH(cist_port_row, idl) {
         ovsrec_mstp_common_instance_port_set_port_role(cist_port_row, MSTP_ROLE_DISABLE);
-        ovsrec_mstp_common_instance_port_set_port_state(cist_port_row, MSTP_STATE_BLOCK);
+        if (!strcmp(cist_port_row->port->admin,OVSREC_PORT_ADMIN_UP))
+        {
+            ovsrec_mstp_common_instance_port_set_port_state(cist_port_row, MSTP_STATE_FORWARD);
+        }
+        else
+        {
+            ovsrec_mstp_common_instance_port_set_port_state(cist_port_row, MSTP_STATE_BLOCK);
+        }
         ovsrec_mstp_common_instance_port_set_designated_root(cist_port_row, system_row->system_mac);
         ovsrec_mstp_common_instance_port_set_link_type(cist_port_row, DEF_LINK_TYPE);
         ovsrec_mstp_common_instance_port_set_oper_edge_port(cist_port_row, &bool_false, 1);
@@ -3285,12 +3356,6 @@ mstp_util_set_cist_port_table_string (const char *if_name, const char *key,
     else if (strcmp(key, DESIGNATED_BRIDGE) == 0) {
         ovsrec_mstp_common_instance_port_set_designated_bridge(cist_port_row, string);
     }
-    else if (strcmp(key, "flush_mac") == 0) {
-#if 0
-        bool value = (strcmp(string,"enable") == 0)?TRUE:FALSE;
-        ovsrec_mstp_common_instance_port_set_flush_macaddress(cist_port_row, &value, 1);
-#endif /*0*/
-    }
 }
 
 /**PROC+***********************************************************
@@ -3376,6 +3441,9 @@ mstp_util_set_msti_table_value (const char *key, int64_t value, int mstid) {
     }
     else if (strcmp(key, TOP_CHANGE_CNT) == 0) {
         ovsrec_mstp_instance_set_topology_change_count(msti_row, &value, 1);
+    }
+    else if (strcmp(key, REMAINING_HOPS) == 0) {
+        ovsrec_mstp_instance_set_remaining_hops(msti_row, &value, 1);
     }
 }
 
@@ -3486,12 +3554,6 @@ mstp_util_set_msti_port_table_string (const char *key, char *string, int mstid, 
     else if (strcmp(key, DESIGNATED_PORT) == 0) {
         ovsrec_mstp_instance_port_set_designated_port(msti_port_row, string);
     }
-    else if (strcmp(key, "flush_mac") == 0) {
-#if 0
-        bool value = (strcmp(string,"enable") == 0)?TRUE:FALSE;
-        ovsrec_mstp_instance_port_set_flush_macaddress(msti_port_row, &value, 1);
-#endif /*0*/
-    }
 }
 /**PROC+***********************************************************
  * Name:    mstp_convertPortRoleEnumToString
@@ -3542,37 +3604,68 @@ void handle_vlan_add_in_mstp_config(int vlan)
     const struct ovsrec_mstp_common_instance *cist_row = NULL;
     const struct ovsrec_vlan *vlan_row = NULL;
     struct ovsrec_vlan **vlans = NULL;
-    int i = 0;
+    int i = 0, vid = 0;
+    const struct ovsrec_mstp_instance *msti_row = NULL;
+    bool vlan_found = FALSE;
+    bool cist_vlan_found = FALSE;
+    bool msti_vlan_found = FALSE;
+
     MSTP_OVSDB_LOCK;
     txn = ovsdb_idl_txn_create(idl);
     if (vlan) {
         OVSREC_VLAN_FOR_EACH(vlan_row, idl) {
             if (vlan == vlan_row->id) {
+                vlan_found = TRUE;
                 break;
             }
         }
-        if (!vlan_row) {
+        if (!vlan_found) {
             ovsdb_idl_txn_commit_block(txn);
             ovsdb_idl_txn_destroy(txn);
+            MSTP_OVSDB_UNLOCK;
+            return;
+        }
+    }
+
+    OVSREC_MSTP_INSTANCE_FOR_EACH(msti_row, idl) {
+        for(vid = 0; vid < msti_row->n_vlans; vid++)
+        {
+            if (vlan == msti_row->vlans[vid]->id)
+            {
+                msti_vlan_found = TRUE;
+            }
         }
     }
     cist_row = ovsrec_mstp_common_instance_first(idl);
-    /* MSTP instance not found with the incoming instID */
-    if(cist_row) {
-        /* Push the complete vlan list to MSTP instance table
-         * including the new vlan*/
-        vlans =
-            xcalloc(cist_row->n_vlans + 1, sizeof *cist_row->vlans);
-        if (!vlans) {
-            ovsdb_idl_txn_commit_block(txn);
-            ovsdb_idl_txn_destroy(txn);
+    if (cist_row)
+    {
+        for(vid = 0; vid < cist_row->n_vlans; vid++)
+        {
+            if (vlan == cist_row->vlans[vid]->id)
+            {
+                cist_vlan_found = TRUE;
+            }
         }
-        for (i = 0; i < cist_row->n_vlans; i++) {
-            vlans[i] = cist_row->vlans[i];
+    }
+    if (!cist_vlan_found && !msti_vlan_found)
+    {
+        /* MSTP instance not found with the incoming instID */
+        if(cist_row) {
+            /* Push the complete vlan list to MSTP instance table
+             * including the new vlan*/
+            vlans =
+                xcalloc(cist_row->n_vlans + 1, sizeof *cist_row->vlans);
+            if (!vlans) {
+                ovsdb_idl_txn_commit_block(txn);
+                ovsdb_idl_txn_destroy(txn);
+            }
+            for (i = 0; i < cist_row->n_vlans; i++) {
+                vlans[i] = cist_row->vlans[i];
+            }
+            vlans[cist_row->n_vlans] = (struct ovsrec_vlan *)vlan_row;
+            ovsrec_mstp_common_instance_set_vlans(cist_row, vlans,
+                    cist_row->n_vlans + 1);
         }
-        vlans[cist_row->n_vlans] = (struct ovsrec_vlan *)vlan_row;
-        ovsrec_mstp_common_instance_set_vlans(cist_row, vlans,
-                cist_row->n_vlans + 1);
     }
     ovsdb_idl_txn_commit_block(txn);
     ovsdb_idl_txn_destroy(txn);
@@ -3693,8 +3786,6 @@ void update_port_entry_in_cist_mstp_instances(char *name, int operation){
         MSTP_OVSDB_UNLOCK;
         return;
     }
-    idp = find_iface_data_by_name(name);
-    if (!idp)
     {
         ovsdb_idl_txn_destroy(txn);
         MSTP_OVSDB_UNLOCK;
@@ -3719,6 +3810,13 @@ void update_port_entry_in_cist_mstp_instances(char *name, int operation){
     }
     if (operation == e_mstpd_lport_add && !cist_port_row) {
         bool found = false;
+        idp = find_iface_data_by_name(name);
+        if (!idp)
+        {
+            ovsdb_idl_txn_destroy(txn);
+            MSTP_OVSDB_UNLOCK;
+            return;
+        }
         /* FILL the default values for CIST_port entry */
         for (i = 0; i < bridge_row->n_ports; i++)
         {
@@ -4122,4 +4220,94 @@ void enable_or_disable_port(int lport,bool enable)
     ovsdb_idl_txn_commit_block(txn);
     ovsdb_idl_txn_destroy(txn);
     MSTP_OVSDB_UNLOCK;
+}
+
+/**PROC+***********************************************************
+ * Name:    mstp_util_msti_flush_mac_address
+ *
+ * Purpose:  trigger mac address flush on on all the corresponding vlans
+ *           for the msti port
+ *
+ * Params:    mstid - instance id
+ *            lport - port on which macs have to be flushed
+ *
+ * Returns:   none
+ *
+ **PROC-*****************************************************************/
+void mstp_util_msti_flush_mac_address(int mstid, int lport)
+{
+    const struct ovsrec_mstp_instance *msti_row = NULL;
+    const struct ovsrec_bridge *bridge_row = NULL;
+    const struct ovsrec_mstp_instance_port *msti_port_row = NULL;
+    struct iface_data *idp = NULL;
+    int  i = 0, j = 0;
+
+    bridge_row = ovsrec_bridge_first(idl);
+    for (i = 0; i < bridge_row->n_mstp_instances; i++)
+    {
+        int id = bridge_row->key_mstp_instances[i];
+        if (id == mstid) {
+            msti_row =  bridge_row->value_mstp_instances[i];
+            if (!msti_row) {
+                break;
+            }
+
+            for (j = 0; j < msti_row->n_mstp_instance_ports; j++)
+            {
+                idp = find_iface_data_by_name(msti_row->mstp_instance_ports[j]->port->name);
+                if(!idp)
+                {
+                    return;
+                }
+                if(lport == idp->lport_id) {
+                    msti_port_row = msti_row->mstp_instance_ports[j];
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!msti_row || !msti_port_row)
+    {
+        VLOG_DBG("%s: Finding instance or instance_port failed", __FUNCTION__);
+        return;
+    }
+
+    /*flush mac address one (port, vlan_set) */
+    ovsrec_port_set_macs_invalid_on_vlans(msti_port_row->port,
+                                          msti_row->vlans, msti_row->n_vlans);
+}
+
+/**PROC+***********************************************************
+ * Name:    mstp_util_cist_flush_mac_address
+ *
+ * Purpose:  trigger mac address flush on on all the corresponding vlans
+ *           for the cist port
+ *
+ * Params:    port_name - port on which macs have to be flushed
+ *
+ * Returns:   none
+ *
+ **PROC-*****************************************************************/
+void mstp_util_cist_flush_mac_address(const char *port_name)
+{
+    const struct ovsrec_mstp_common_instance_port *cist_port_row = NULL;
+    const struct ovsrec_mstp_common_instance *cist_row = NULL;
+
+    cist_row = ovsrec_mstp_common_instance_first(idl);
+
+    OVSREC_MSTP_COMMON_INSTANCE_PORT_FOR_EACH(cist_port_row, idl) {
+        if (strncmp(cist_port_row->port->name, port_name, strlen(port_name)) == 0) {
+            break;
+        }
+    }
+
+    if (!cist_row || !cist_port_row) {
+         VLOG_DBG("%s: Finding instance or instance_port failed", __FUNCTION__);
+         return;
+    }
+
+    /*flush mac address one (port, vlan_set) */
+    ovsrec_port_set_macs_invalid_on_vlans(cist_port_row->port,
+                                          cist_row->vlans, cist_row->n_vlans);
 }
