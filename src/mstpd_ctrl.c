@@ -412,6 +412,7 @@ mstpd_protocol_thread(void *arg)
     mstp_vlan_add *vlan_add;
     mstp_vlan_delete *vlan_delete;
     mstp_admin_status *status;
+    PORT_MAP temp_l2ports;
     MSTP_RX_PDU *pkt;
     bool informDB = TRUE;
     uint32_t vlan = 0;
@@ -422,6 +423,7 @@ mstpd_protocol_thread(void *arg)
     pthread_detach(pthread_self());
     clear_port_map(&ports_up);
     clear_port_map(&l2ports);
+    clear_port_map(&temp_l2ports);
     mstp_Bridge.ForceVersion = MSTP_PROTOCOL_VERSION_ID_MST;
     mstpInitialInit();
 
@@ -501,17 +503,24 @@ mstpd_protocol_thread(void *arg)
                 update_port_entry_in_cist_mstp_instances(port,e_mstpd_lport_add);
                 update_port_entry_in_msti_mstp_instances(port,e_mstpd_lport_add);
                 update_mstp_on_lport_add(lport);
-                if (MSTP_ENABLED)
+                if (if_nametoindex(port))
                 {
-                    register_stp_mcast_addr(lport);
-                    mstp_addLport(lport);
-                    if(!is_lport_down(lport))
+                    if (MSTP_ENABLED)
                     {
-                        SPEED_DPLX    ports_cfg = {0};
-                        intf_get_lport_speed_duplex(lport,&ports_cfg);
-                        mstp_portAutoDetectParamsSet(lport, &ports_cfg);
-                        mstp_portEnable(lport);
+                        register_stp_mcast_addr(lport);
+                        mstp_addLport(lport);
+                        if(!is_lport_down(lport))
+                        {
+                            SPEED_DPLX    ports_cfg = {0};
+                            intf_get_lport_speed_duplex(lport,&ports_cfg);
+                            mstp_portAutoDetectParamsSet(lport, &ports_cfg);
+                            mstp_portEnable(lport);
+                        }
                     }
+                }
+                else
+                {
+                    set_port(&temp_l2ports,lport);
                 }
                 break;
             case e_mstpd_lport_delete:
@@ -625,6 +634,30 @@ mstpd_protocol_thread(void *arg)
                 /***********************************************************
                  * Msg from MSTP timers.
                  ***********************************************************/
+                if (MSTP_ENABLED && are_any_ports_set(&temp_l2ports))
+                {
+                    uint16_t lport = 0;
+                    struct iface_data *idp = NULL;
+                    for (lport = find_first_port_set(&temp_l2ports);
+                            lport > 0 && lport <= MAX_LPORTS;
+                            lport = find_next_port_set(&temp_l2ports, lport))
+                    {
+                        idp = find_iface_data_by_index(lport);
+                        if (if_nametoindex(idp->name))
+                        {
+                            register_stp_mcast_addr(lport);
+                            mstp_addLport(lport);
+                            if(!is_lport_down(lport))
+                            {
+                                SPEED_DPLX    ports_cfg = {0};
+                                intf_get_lport_speed_duplex(lport,&ports_cfg);
+                                mstp_portAutoDetectParamsSet(lport, &ports_cfg);
+                                mstp_portEnable(lport);
+                            }
+                            clear_port(&temp_l2ports,lport);
+                        }
+                    }
+                }
                 if(MSTP_ENABLED)
                 {
                     mstp_processTimerTickEvent();
