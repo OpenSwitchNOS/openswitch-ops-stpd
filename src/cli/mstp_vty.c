@@ -54,7 +54,30 @@ extern struct ovsdb_idl *idl;
 const struct shash_node **sort_interface(const struct shash *sh);
 
 VLOG_DEFINE_THIS_MODULE(vtysh_mstp_cli);
-
+/* Function : check_internal_vlan
+ * Description : Checks if interface vlan is being created for
+ * an already used internal VLAN.
+ * param in : vlanid - to check if it is already in use
+ */
+static int
+check_internal_vlan(uint16_t vlanid)
+{
+    const struct ovsrec_vlan *vlan_row = NULL;
+    OVSREC_VLAN_FOR_EACH(vlan_row, idl)
+    {
+        if (smap_get(&vlan_row->internal_usage,
+                    VLAN_INTERNAL_USAGE_L3PORT))
+        {
+            VLOG_DBG("%s Used internally for l3 interface", __func__);
+            /* now check if this vlan is used for creating vlan interface */
+            if (vlanid == vlan_row->id) {
+                VLOG_DBG("%s This is a internal vlan = %d", __func__, vlanid);
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
 /*-----------------------------------------------------------------------------
  | Function:        mstp_validateStrVlanNumber
  | Responsibility:  validates if VLAN number has all digits
@@ -1430,6 +1453,7 @@ mstp_cli_set_cist_table (const char *key, int64_t value) {
 
     if (VTYSH_STR_EQ(key, MSTP_BRIDGE_PRIORITY)) {
         ovsrec_mstp_common_instance_set_priority(cist_row, &value, 1);
+        VLOG_INFO("Priority is SET from CLI!!!");
     }
     else if (VTYSH_STR_EQ(key, MSTP_HELLO_TIME)) {
         ovsrec_mstp_common_instance_set_hello_time(cist_row, &value, 1);
@@ -1836,6 +1860,8 @@ mstp_cli_add_inst_vlan_map(const int64_t instid, const char *vlanid) {
     int64_t priority = DEF_BRIDGE_PRIORITY;
     int64_t admin_path_cost = DEF_MSTP_COST;
     int64_t vlan_id = 0;
+
+    START_DB_TXN(txn);
     if (mstp_validateStrVlanNumber(vlanid))
     {
         vlan_id = (vlanid)? atoi(vlanid):MSTP_INVALID_ID;
@@ -1845,7 +1871,6 @@ mstp_cli_add_inst_vlan_map(const int64_t instid, const char *vlanid) {
         ERRONEOUS_DB_TXN(txn, "Invalid VLAN ID");
     }
 
-    START_DB_TXN(txn);
     if (!MSTP_VALID_MSTID(instid)) {
         ERRONEOUS_DB_TXN(txn, "Invalid InstanceID");
     }
@@ -2244,19 +2269,61 @@ DEFUN(cli_no_mstp_config_rev,
 
 DEFUN(cli_mstp_inst_vlanid,
       cli_mstp_inst_vlanid_cmd,
-      "spanning-tree instance <1-64> vlan VLANID",
+      "spanning-tree instance <1-64> vlan <A:1-4094>",
       SPAN_TREE
       MST_INST
       "Enter an integer number\n"
       VLAN_STR
       "VLAN to add or to remove from the MST instance\n") {
-    mstp_cli_add_inst_vlan_map (atoi(argv[0]), argv[1]);
+    char *vlan_id = NULL;
+    uint64_t vlanid = 0;
+    struct range_list *temp_to_free, *temp_to_display, *list = NULL;
+    char *in = xmalloc ((strlen(argv[1]) + 1) * sizeof (char));
+    strncpy(in, argv[1], strlen(argv[1]) + 1);
+    list = cmd_get_range_value(in, 0);
+    free(in);
+    if (list == NULL)
+                return CMD_ERR_NO_MATCH;
+    temp_to_free = temp_to_display = list;
+    while (list != NULL)
+    {
+        vlan_id = list->value;
+        vlanid = atoi(vlan_id);
+        /* Check for internal vlan use. */
+        if (check_internal_vlan(vlanid) == 0)
+        {
+            vty_out(vty, "Error : Vlan ID-%s is an internal vlan, aborting the VLAN's ",vlan_id);
+            while (temp_to_display->link != NULL)
+            {
+                vty_out (vty, "%s, ", (temp_to_display->value));
+                temp_to_display = temp_to_display->link;
+            }
+            vty_out (vty, "%s configurations.%s", (temp_to_display->value), VTY_NEWLINE);
+            temp_to_display = NULL;
+            return CMD_SUCCESS;
+        }
+        if (mstp_cli_add_inst_vlan_map (atoi(argv[0]), vlan_id) != CMD_SUCCESS)
+        {
+            vty_out(vty, "Error : Aborting the VLAN's ");
+            while (temp_to_display->link != NULL)
+            {
+                vty_out (vty, "%s, ", (temp_to_display->value));
+                temp_to_display = temp_to_display->link;
+            }
+            vty_out (vty, "%s configurations.%s", (temp_to_display->value), VTY_NEWLINE);
+            temp_to_display = NULL;
+            return CMD_SUCCESS;
+        }
+        list = list->link;
+        temp_to_display = list;
+    }
+    temp_to_free = cmd_free_memory_range_list(temp_to_free);
     return CMD_SUCCESS;
 }
 
 DEFUN(cli_no_mstp_inst_vlanid,
       cli_no_mstp_inst_vlanid_cmd,
-      "no spanning-tree instance <1-64> vlan VLANID",
+      "no spanning-tree instance <1-64> vlan <A:1-4094>",
       NO_STR
       SPAN_TREE
       MST_INST

@@ -497,6 +497,7 @@ mstpd_ovsdb_init(const char *db_path)
     ovsdb_idl_add_column(idl, &ovsrec_port_col_bond_status);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_interfaces);
     ovsdb_idl_add_column(idl, &ovsrec_port_col_macs_invalid_on_vlans);
+    ovsdb_idl_add_column(idl, &ovsrec_port_col_macs_invalid);
 
     ovsdb_idl_add_column(idl, &ovsrec_bridge_col_mstp_instances);
     ovsdb_idl_add_column(idl, &ovsrec_bridge_col_mstp_common_instance);
@@ -2038,6 +2039,7 @@ int mstp_cist_config_update(void) {
     }
     if (config_change == TRUE)
     {
+        VLOG_INFO("Change in CIST Config Sending update from OVSDB");
         cist_conf = &mstp_cist_conf;
         send_mstp_cist_config_update(cist_conf);
     }
@@ -4240,6 +4242,7 @@ void mstp_util_msti_flush_mac_address(int mstid, int lport)
     const struct ovsrec_bridge *bridge_row = NULL;
     const struct ovsrec_mstp_instance_port *msti_port_row = NULL;
     struct iface_data *idp = NULL;
+    bool flush_status = true;
     int  i = 0, j = 0;
 
     bridge_row = ovsrec_bridge_first(idl);
@@ -4274,8 +4277,13 @@ void mstp_util_msti_flush_mac_address(int mstid, int lport)
     }
 
     /*flush mac address one (port, vlan_set) */
-    ovsrec_port_set_macs_invalid_on_vlans(msti_port_row->port,
-                                          msti_row->vlans, msti_row->n_vlans);
+    VLOG_INFO("Try Setting MACS INVALID for PORT : %d MSTI : %d",lport,mstid);
+    if(msti_port_row->port && !msti_port_row->port->macs_invalid)
+    {
+        VLOG_INFO("Setting MACS INVALID for PORT : %d MSTI : %d",lport,mstid);
+        ovsrec_port_set_macs_invalid(msti_port_row->port,
+                &flush_status, 1);
+    }
 }
 
 /**PROC+***********************************************************
@@ -4293,6 +4301,7 @@ void mstp_util_cist_flush_mac_address(const char *port_name)
 {
     const struct ovsrec_mstp_common_instance_port *cist_port_row = NULL;
     const struct ovsrec_mstp_common_instance *cist_row = NULL;
+    bool flush_status = true;
 
     cist_row = ovsrec_mstp_common_instance_first(idl);
 
@@ -4307,9 +4316,14 @@ void mstp_util_cist_flush_mac_address(const char *port_name)
          return;
     }
 
-    /*flush mac address one (port, vlan_set) */
-    ovsrec_port_set_macs_invalid_on_vlans(cist_port_row->port,
-                                          cist_row->vlans, cist_row->n_vlans);
+    VLOG_INFO("Try Setting MACS INVALID for CIST for Port : %s ",port_name);
+    if (cist_port_row->port && !cist_port_row->port->macs_invalid)
+    {
+        VLOG_INFO("Setting MACS INVALID for CIST for Port : %s ",port_name);
+        /*flush mac address one (port, vlan_set) */
+        ovsrec_port_set_macs_invalid(cist_port_row->port,
+                &flush_status, 1);
+    }
 }
 
 bool intf_get_link_state(const struct ovsrec_port *prow)

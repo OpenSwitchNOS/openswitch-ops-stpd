@@ -264,7 +264,7 @@ mstp_adminStatusUpdate(int status)
        * Initialize global 'mstp_MstIdToVlanGroupNumTable' - used for
        * mapping MST instance ID to VLAN group number.
        *---------------------------------------------------------------------*/
-      VLOG_DBG("%s : MSTP Enable Path", __FUNCTION__);
+      VLOG_INFO("%s : MSTP Enable Path", __FUNCTION__);
       mstp_initMstiVlanTables();
       VLOG_DBG("%s : MSTP VLAN tables initialized", __FUNCTION__);
 

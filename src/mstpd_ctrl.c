@@ -454,6 +454,7 @@ mstpd_protocol_thread(void *arg)
                 break;
 
             case e_mstpd_cist_config:
+                VLOG_INFO("Change in CIST Config Received update from OVSDB");
                 update_mstp_cist_config(pmsg);
                 VLOG_DBG("Received a CIST config Update");
                 break;
@@ -913,6 +914,7 @@ mstp_checkDynReconfigChanges(void)
    {
       return;
    }
+   VLOG_INFO("Dynamic Reconfigure occured!!!");
 
    MSTP_DYN_CFG_PRINTF("!DYN RECONFIG: %s", "start");
    Spanning = false;
@@ -1995,6 +1997,7 @@ mstp_informDBOnPortStateChange(uint32_t operation)
          free(m);
       }
    }
+
    ovsdb_idl_txn_commit_block(txn);
    ovsdb_idl_txn_destroy(txn);
    MSTP_OVSDB_UNLOCK;
