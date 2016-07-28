@@ -5307,6 +5307,7 @@ mstp_updtRolesCist(void)
                rootPathPriVec.extRootPathCost +=
                                              commPortPtr->ExternalPortPathCost;
                mstp_util_set_cist_table_value(CIST_PATH_COST,rootPathPriVec.extRootPathCost);
+               mstp_util_set_cist_table_value(ROOT_PATH_COST,rootPathPriVec.intRootPathCost);
                mstp_util_set_cist_port_table_value(port,CIST_PATH_COST,rootPathPriVec.extRootPathCost);
                rootPathPriVec.rgnRootID = MSTP_CIST_BRIDGE_IDENTIFIER;
                /* the Internal Root Path Cost component of the Message Priority
@@ -5320,6 +5321,7 @@ mstp_updtRolesCist(void)
                rootPathPriVec.intRootPathCost +=
                                              cistPortPtr->InternalPortPathCost;
                mstp_util_set_cist_table_value(ROOT_PATH_COST,rootPathPriVec.intRootPathCost);
+               mstp_util_set_cist_table_value(CIST_PATH_COST,rootPathPriVec.extRootPathCost);
                intf_get_port_name(lport,port);
                mstp_util_set_cist_port_table_value(port,PORT_PATH_COST,rootPathPriVec.intRootPathCost);
                mstp_util_set_cist_port_table_value(port,CIST_PATH_COST,rootPathPriVec.intRootPathCost);
@@ -5400,6 +5402,12 @@ mstp_updtRolesCist(void)
            cistRootPriVec.rgnRootID.mac_address[5]);
    mstp_util_set_cist_table_string(REGIONAL_ROOT,regionalRoot);
 
+   if(MAC_ADDRS_EQUAL(cistRootPriVec.rgnRootID.mac_address,
+               MSTP_CIST_BRIDGE_IDENTIFIER.mac_address))
+   {
+       mstp_util_set_cist_table_value(ROOT_PATH_COST, (int64_t)0);
+   }
+
    if (cistRootPortId != MSTP_CIST_ROOT_PORT_ID)
    {
       /* PortId "0" indicates the bridge is the root */
@@ -5468,6 +5476,7 @@ mstp_updtRolesCist(void)
       mstp_util_set_cist_table_value(OPER_MAX_AGE, mstp_Bridge.MaxAge);
       mstp_util_set_cist_table_value(OPER_TX_HOLD_COUNT, mstp_Bridge.TxHoldCount);
       mstp_util_set_cist_table_value(ROOT_PATH_COST, (int64_t)0);
+      mstp_util_set_cist_table_value(CIST_PATH_COST, (int64_t)0);
       mstp_util_set_cist_table_string(ROOT_PORT,"0");
    }
    else
