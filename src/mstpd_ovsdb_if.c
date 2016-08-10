@@ -2773,6 +2773,7 @@ util_add_default_ports_to_mist() {
             }
             else
             {
+                port_priority = DEF_MSTP_PORT_PRIORITY;
                 ovsrec_mstp_instance_port_set_port_priority(mstp_port_row,
                         &port_priority, 1 );
             }
@@ -2926,6 +2927,7 @@ util_add_default_ports_to_cist() {
         }
         else
         {
+            cist_port_priority = DEF_MSTP_PORT_PRIORITY;
             ovsrec_mstp_common_instance_port_set_port_priority( cist_port_row,
                     &cist_port_priority, 1);
         }

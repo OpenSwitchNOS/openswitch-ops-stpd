@@ -2056,6 +2056,7 @@ mstp_cli_add_inst_vlan_map(const int64_t instid, const char *vlanid, struct ovsd
             }
             else
             {
+                port_priority = DEF_MSTP_PORT_PRIORITY;
                 ovsrec_mstp_instance_port_set_port_priority(mstp_inst_port_row,
                         &port_priority, 1 );
             }
