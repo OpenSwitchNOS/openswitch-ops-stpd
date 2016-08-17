@@ -56,7 +56,6 @@ VLOG_DEFINE_THIS_MODULE(mstpd);
 bool exiting = false;
 static unixctl_cb_func ops_mstpd_exit;
 
-extern int mstpd_shutdown;
 
 /**
  * mstpd daemon's timer handler function.
@@ -166,7 +165,7 @@ mstpd_init(const char *db_path, struct unixctl_server *appctl)
 
     /* Block all signals so the spawned threads don't receive any. */
     sigemptyset(&sigset);
-    sigfillset(&sigset);
+    sigaddset(&sigset, SIGALRM);
     pthread_sigmask(SIG_BLOCK, &sigset, NULL);
 
     /* Spawn off the main MSTP protocol thread. */
@@ -394,25 +393,16 @@ main(int argc, char *argv[])
     }
 
     /* Wait for all signals in an infinite loop. */
-    sigfillset(&sigset);
-    while (!mstpd_shutdown) {
+    sigemptyset(&sigset);
+    sigaddset(&sigset, SIGALRM);
 
+    while (1) {
         sigwait(&sigset, &signum);
-        switch (signum) {
-
-        case SIGALRM:
+        if (signum == SIGALRM) {
             mstpd_timerHandler();
-            break;
-
-        case SIGTERM:
-        case SIGINT:
-            VLOG_WARN("%s, sig %d caught", __FUNCTION__, signum);
-            mstpd_shutdown = 1;
-            break;
-
-        default:
-            VLOG_INFO("Ignoring signal %d.\n", signum);
-            break;
+        }
+        else {
+            VLOG_ERR("Received invalid signal : %d\n", signum);
         }
     }
 
