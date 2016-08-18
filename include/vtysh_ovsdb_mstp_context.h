@@ -20,9 +20,11 @@
  ******************************************************************************/
 #ifndef VTYSH_OVSDB_MSTP_CONTEXT_H
 #define VTYSH_OVSDB_MSTP_CONTEXT_H
+#include "mstp_mapping.h"
 
 vtysh_ret_val vtysh_config_context_mstp_clientcallback(void *p_private);
 vtysh_ret_val vtysh_mstp_context_clientcallback(void *p_private);
 vtysh_ret_val vtysh_intf_context_mstp_clientcallback(void *p_private);
+extern void print_vidmap_multiline(VID_MAP * vidMap, uint32_t, uint32_t);
 
 #endif /* VTYSH_OVSDB_MSTP_CONTEXT_H */
