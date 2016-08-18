@@ -21,6 +21,8 @@
  *    File               : vtysh_ovsdb_mstp_context.c
  *    Description        : MSTP Protocol show running config API
  ******************************************************************************/
+
+#include "mstp_inlines.h"
 #include "vtysh/vty.h"
 #include "vtysh/vector.h"
 #include "vswitch-idl.h"
@@ -40,6 +42,7 @@
  |      e_vtysh_ok on success else e_vtysh_error
  ------------------------------------------------------------------------------
  */
+
 static int
 vtysh_ovsdb_parse_mstp_global_config(vtysh_ovsdb_cbmsg_ptr p_msg) {
     const struct ovsrec_bridge *bridge_row = NULL;
@@ -48,7 +51,8 @@ vtysh_ovsdb_parse_mstp_global_config(vtysh_ovsdb_cbmsg_ptr p_msg) {
     const struct ovsrec_mstp_instance *mstp_row = NULL;
     const char *data = NULL;
     size_t i = 0, j = 0;
-
+    VID_MAP vidMap;
+    VID_t vid = 0;
     if(!p_msg) {
         return e_vtysh_error;
     }
@@ -86,11 +90,17 @@ vtysh_ovsdb_parse_mstp_global_config(vtysh_ovsdb_cbmsg_ptr p_msg) {
                 return e_vtysh_error;
             }
 
-            /* Loop for all vlans in one MST instance table */
-            for (j=0; j<mstp_row->n_vlans; j++) {
-                vtysh_ovsdb_cli_print(p_msg, "spanning-tree instance %ld vlan %ld",
-                    bridge_row->key_mstp_instances[i], mstp_row->vlans[j]->id );
+            /* Loop for seting bitmap of all vlans in one MST instance table */
+            clear_vid_map(&vidMap);
+            for (j=0; j<mstp_row->n_vlans; j++){
+                set_vid(&vidMap, mstp_row->vlans[j]->id);
             }
+            vty_out(vty,"spanning-tree instance %ld vlan",bridge_row->key_mstp_instances[i]);
+            /* Loop for all vlans in one MST instance table */
+            for (vid = find_first_vid_set(&vidMap);vid < MAX_VLAN_ID; vid = find_next_vid(&vidMap,vid)){
+                vty_out(vty," %d", vid );
+            }
+            vty_out(vty,"%s", VTY_NEWLINE);
 
             if (mstp_row->priority &&
                     (*mstp_row->priority != DEF_BRIDGE_PRIORITY)) {
@@ -126,6 +136,7 @@ vtysh_ovsdb_parse_mstp_global_config(vtysh_ovsdb_cbmsg_ptr p_msg) {
         }
         if (cist_row->max_hop_count &&
                 *cist_row->max_hop_count != DEF_MAX_HOPS) {
+
             vtysh_ovsdb_cli_print(p_msg, "spanning-tree max-hops %ld",
                                          *cist_row->max_hop_count);
         }
@@ -154,6 +165,7 @@ vtysh_ovsdb_parse_mstp_intf_config(vtysh_ovsdb_cbmsg_ptr p_msg) {
     const struct ovsrec_mstp_instance *mstp_row = NULL;
     const struct ovsrec_mstp_instance_port *mstp_port_row = NULL;
     const struct ovsrec_bridge *bridge_row = NULL;
+
     int i = 0, j = 0;
 
     ifrow = (struct ovsrec_interface *)p_msg->feature_row;
