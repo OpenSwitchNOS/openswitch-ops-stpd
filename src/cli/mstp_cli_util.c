@@ -127,7 +127,7 @@ void print_vidmap_multiline(VID_MAP * vidMap, uint32_t lineLength,
             findRange = false;
 
             /* Format output lines if necessary */
-            if((printedLineLen + strlen(vidStr)) > lineLength)
+            if(lineLength && ((printedLineLen + strlen(vidStr)) > lineLength))
             {
                vty_out(vty, "%s", VTY_NEWLINE);
                vty_out(vty, "%*s", lineIndent, "");
