@@ -37,6 +37,7 @@
 #include <mqueue.h>
 #include <assert.h>
 #include "mstp_inlines.h"
+#include "mstp_ovsdb_if.h"
 #include <openssl/md5.h>
 
 /* inlines.c in libw.ss compiles this code into library routines by define
@@ -1723,6 +1724,17 @@ bool is_vlan_set(const VLAN_MAP *map, uint32_t vlan)
       return(false);
    }
    return(isBitSet(&map->vmap[0], vlan, MAX_VLANS));
+}
+
+extern
+bool is_instances_set(const MSTI_MAP *map, uint16_t mstid )
+{
+    if (!map)
+    {
+        assert(0);
+        return (false);
+    }
+    return (isBitSet(&map->map[0], mstid, MSTP_INSTANCES_MAX));
 }
 
 extern
