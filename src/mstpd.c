@@ -46,10 +46,12 @@
 #include <openvswitch/vlog.h>
 #include <diag_dump.h>
 #include <eventlog.h>
+#include <openswitch-idl.h>
 
 #include "mstp.h"
 #include "mstp_ovsdb_if.h"
 #include "mstp_cmn.h"
+#include "mstp_inlines.h"
 
 VLOG_DEFINE_THIS_MODULE(mstpd);
 
@@ -85,12 +87,14 @@ static void
 mstpd_diag_dump_basic_cb(const char *feature , char **buf)
 {
     struct ds ds = DS_EMPTY_INITIALIZER;
-    int argc = 2, i = 0, j = 0;
+    int argc = 2, i = 0, j = 0, count_no_of_port=0;
     const struct ovsrec_mstp_common_instance_port *cist_port = NULL;
     const struct ovsrec_mstp_instance *mstp_row = NULL;
     const struct ovsrec_bridge *bridge_row = NULL;
     const char *argv[3] = {0};
-    char inst_id[2] = {0};
+    char inst_id[2] = {0}, vidStr[MSTP_MAX_VID_STR_LEN] = {0};
+    VID_MAP vidMap;
+    VID_t vid = 0;
 
     if((!feature) || (!buf)) {
         VLOG_ERR("Invalid Input %s: %d\n", __FILE__, __LINE__ );
@@ -109,9 +113,16 @@ mstpd_diag_dump_basic_cb(const char *feature , char **buf)
     mstpd_daemon_cist_data_dump(&ds, argc, argv);
 
     /* Populate CIST port data*/
+    clear_vid_map(&vidMap);
     OVSREC_MSTP_COMMON_INSTANCE_PORT_FOR_EACH(cist_port, idl) {
         memset(argv, 0, sizeof(argv));
-        argv[1] = cist_port->port->name;
+        set_vid(&vidMap,atoi(cist_port->port->name));
+        count_no_of_port++;
+        }
+    for(vid=find_first_vid_set(&vidMap); vid <= count_no_of_port; vid = find_next_vid(&vidMap,vid))
+    {
+        sprintf(vidStr,"%d",vid);
+        argv[1]=vidStr;
         mstpd_cist_port_data_dump(&ds, argc, argv);
         mstpd_daemon_cist_port_data_dump(&ds, argc, argv);
     }

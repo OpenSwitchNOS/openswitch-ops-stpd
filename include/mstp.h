@@ -65,4 +65,5 @@ int register_stp_mcast_addr(int ifindex);
 void deregister_stp_mcast_addr(int ifindex);
 void *mstpd_protocol_thread(void *arg);
 int mmstp_init(u_long);
+#define MSTP_MAX_VID_STR_LEN 10
 #endif /* _MSTP_H_ */
