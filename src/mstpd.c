@@ -46,12 +46,15 @@
 #include <openvswitch/vlog.h>
 #include <diag_dump.h>
 #include <eventlog.h>
+#include <openswitch-idl.h>
 
 #include "mstp.h"
 #include "mstp_ovsdb_if.h"
 #include "mstp_cmn.h"
+#include "mstp_inlines.h"
 
 VLOG_DEFINE_THIS_MODULE(mstpd);
+#define MSTP_MAX_PORT_ID_STR_LEN 10
 
 bool exiting = false;
 static unixctl_cb_func ops_mstpd_exit;
@@ -87,10 +90,15 @@ mstpd_diag_dump_basic_cb(const char *feature , char **buf)
     struct ds ds = DS_EMPTY_INITIALIZER;
     int argc = 2, i = 0, j = 0;
     const struct ovsrec_mstp_common_instance_port *cist_port = NULL;
+    const struct ovsrec_mstp_common_instance *cist_row = NULL;
     const struct ovsrec_mstp_instance *mstp_row = NULL;
     const struct ovsrec_bridge *bridge_row = NULL;
     const char *argv[3] = {0};
-    char inst_id[2] = {0};
+    char inst_id[2] = {0}, port_no_str[MSTP_MAX_PORT_ID_STR_LEN] = {0};
+    PORT_MAP portMap, portMapMsti;
+    MSTI_MAP msti_map;
+    uint16_t mstid;
+    PORT_t port_no = 0, port_no_msti = 0;
 
     if((!feature) || (!buf)) {
         VLOG_ERR("Invalid Input %s: %d\n", __FILE__, __LINE__ );
@@ -103,44 +111,83 @@ mstpd_diag_dump_basic_cb(const char *feature , char **buf)
         return;
     }
 
+    cist_row = ovsrec_mstp_common_instance_first (idl);
+    if (!cist_row) {
+        VLOG_ERR("No record found %s: %d\n", __FILE__, __LINE__ );
+        return;
+    }
+
     /* populate basic diagnostic data to buffer */
     /* Populate CIST Data */
     mstpd_cist_data_dump(&ds, argc, argv);
     mstpd_daemon_cist_data_dump(&ds, argc, argv);
 
-    /* Populate CIST port data*/
+    /*BitMap for CIST port data*/
+    clear_port_map(&portMap);
     OVSREC_MSTP_COMMON_INSTANCE_PORT_FOR_EACH(cist_port, idl) {
-        memset(argv, 0, sizeof(argv));
-        argv[1] = cist_port->port->name;
-        mstpd_cist_port_data_dump(&ds, argc, argv);
-        mstpd_daemon_cist_port_data_dump(&ds, argc, argv);
+        set_port(&portMap, atoi(cist_port->port->name));
+        }
+
+    /* Populate CIST port data*/
+    port_no =find_first_port_set(&portMap);
+    for(i=0 ; i < cist_row->n_mstp_common_instance_ports; i++) {
+        if (IS_VALID_LPORT(port_no)){
+            memset(argv, 0, sizeof(argv));
+            memset(port_no_str, 0, sizeof(port_no_str));
+            snprintf(port_no_str, sizeof(port_no_str), "%d", port_no);
+            argv[1] = port_no_str;
+            mstpd_cist_port_data_dump(&ds, argc, argv);
+            mstpd_daemon_cist_port_data_dump(&ds, argc, argv);
+        }
+        port_no = find_next_port_set(&portMap, port_no);
+    }
+
+    /* BitMap for MSTI data*/
+    clearBitmap(&msti_map.map[0],MSTP_INSTANCES_MAX);
+    for (i=0; i < bridge_row->n_mstp_instances; i++){
+        mstid = bridge_row->key_mstp_instances[i];
+        setBit(&msti_map.map[0],mstid, MSTP_INSTANCES_MAX);
     }
 
     /* Populate MSTI data*/
+    mstid = findFirstBitSet(&msti_map.map[0], MSTP_INSTANCES_MAX);
     for (i=0; i < bridge_row->n_mstp_instances; i++) {
-        memset(argv, 0, sizeof(argv));
-        memset(inst_id, 0, sizeof(inst_id));
-        snprintf(inst_id, sizeof(inst_id), "%ld", bridge_row->key_mstp_instances[i]);
-        mstp_row = bridge_row->value_mstp_instances[i];
-        if(!mstp_row) {
-            VLOG_ERR("No MSTP Record found %s: %d",__FILE__, __LINE__);
-            assert(0);
-        }
-        argv[1] = inst_id;
-        mstpd_msti_data_dump(&ds, argc, argv);
-        mstpd_daemon_msti_data_dump(&ds, argc, argv);
-
-        /* Populate MSTI port data*/
-        for (j=0; j < mstp_row->n_mstp_instance_ports; j++) {
-            if(!mstp_row->mstp_instance_ports[j]) {
-                VLOG_ERR("No MSTP Port Record found %s: %d",__FILE__, __LINE__);
+        if (is_instances_set (&msti_map, mstid)){
+            memset(argv, 0, sizeof(argv));
+            memset(inst_id, 0, sizeof(inst_id));
+            snprintf(inst_id, sizeof(inst_id), "%d", mstid);
+            mstp_row = bridge_row->value_mstp_instances[i];
+            if(!mstp_row) {
+                VLOG_ERR("No MSTP Record found %s: %d",__FILE__, __LINE__);
                 assert(0);
             }
-
-            argv[2] = mstp_row->mstp_instance_ports[j]->port->name;
-            mstpd_msti_port_data_dump(&ds, argc, argv);
-            mstpd_daemon_msti_port_data_dump(&ds, argc, argv);
+            argv[1] = inst_id;
+            mstpd_msti_data_dump(&ds, argc, argv);
+            mstpd_daemon_msti_data_dump(&ds, argc, argv);
         }
+        /* BitMap for MSTI port data*/
+        clear_port_map(&portMapMsti);
+        for (j=0; j < mstp_row->n_mstp_instance_ports; j++){
+            set_port(&portMapMsti, atoi(mstp_row->mstp_instance_ports[j]->port->name));
+        }
+
+        /*Populate MSTI port data*/
+        port_no_msti = find_first_port_set(&portMapMsti);
+        for (j=0; j < mstp_row->n_mstp_instance_ports; j++){
+            if (IS_VALID_LPORT(port_no_msti)){
+                if(!mstp_row->mstp_instance_ports[j]) {
+                    VLOG_ERR("No MSTP Port Record found %s: %d",__FILE__, __LINE__);
+                    assert(0);
+                }
+                memset(port_no_str, 0, sizeof(port_no_str));
+                snprintf(port_no_str, sizeof(port_no_str), "%d", port_no_msti);
+                argv[2] = port_no_str;
+                mstpd_msti_port_data_dump(&ds, argc, argv);
+                mstpd_daemon_msti_port_data_dump(&ds, argc, argv);
+            }
+            port_no_msti = find_next_port_set(&portMapMsti,port_no_msti);/*MSTI port data*/
+        }
+        mstid = findNextBitSet(&msti_map.map[0], mstid, MSTP_INSTANCES_MAX);/*MSTI data*/
     }
 
     *buf = ds.string;

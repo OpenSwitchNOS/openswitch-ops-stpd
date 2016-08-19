@@ -314,7 +314,7 @@ void mstpd_cist_data_dump(struct ds *ds, int argc, const char *argv[])
     ds_put_format(ds, "MSTP VLANs: ");
     for (vid = find_first_vid_set(&mstp_cist_conf.vlans);vid < MAX_VLAN_ID; vid = find_next_vid(&mstp_cist_conf.vlans,vid))
     {
-        ds_put_format(ds, "%d", vid);
+        ds_put_format(ds, "%d ", vid);
     }
     ds_put_format(ds, "\n");
     ds_put_format(ds, "MSTP CIST Priority %d\n", mstp_cist_conf.priority);
@@ -430,7 +430,7 @@ void mstpd_msti_data_dump(struct ds *ds, int argc, const char *argv[])
         ds_put_format(ds, "MSTP MSTI VLANs: ");
         for (vid = find_first_vid_set(&msti_data->vlans);vid < MAX_VLAN_ID; vid = find_next_vid(&msti_data->vlans,vid))
         {
-            ds_put_format(ds, "%d", vid);
+            ds_put_format(ds, "%d ", vid);
         }
         ds_put_format(ds, "\n");
         ds_put_format(ds, "MSTP MSTI Priority %d\n", msti_data->priority);

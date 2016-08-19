@@ -332,6 +332,9 @@ VID_t find_next_vlan(const VLAN_MAP *map, uint32_t prevVlan);
 bool is_vlan_set(const VLAN_MAP *map, uint32_t vlan);
 
 
+bool is_instances_set(const MSTI_MAP *map, uint16_t mstid );
+
+
 void clear_vlan_map(VLAN_MAP *map);
 
 
