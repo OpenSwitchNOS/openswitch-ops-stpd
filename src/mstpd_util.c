@@ -5306,7 +5306,6 @@ mstp_updtRolesCist(void)
                intf_get_port_name(lport,port);
                rootPathPriVec.extRootPathCost +=
                                              commPortPtr->ExternalPortPathCost;
-               mstp_util_set_cist_table_value(CIST_PATH_COST,rootPathPriVec.extRootPathCost);
                mstp_util_set_cist_port_table_value(port,CIST_PATH_COST,rootPathPriVec.extRootPathCost);
                rootPathPriVec.rgnRootID = MSTP_CIST_BRIDGE_IDENTIFIER;
                /* the Internal Root Path Cost component of the Message Priority
@@ -5319,7 +5318,6 @@ mstp_updtRolesCist(void)
                char port[20] = {0};
                rootPathPriVec.intRootPathCost +=
                                              cistPortPtr->InternalPortPathCost;
-               mstp_util_set_cist_table_value(ROOT_PATH_COST,rootPathPriVec.intRootPathCost);
                intf_get_port_name(lport,port);
                mstp_util_set_cist_port_table_value(port,PORT_PATH_COST,rootPathPriVec.intRootPathCost);
                mstp_util_set_cist_port_table_value(port,CIST_PATH_COST,rootPathPriVec.intRootPathCost);
@@ -5400,6 +5398,12 @@ mstp_updtRolesCist(void)
            cistRootPriVec.rgnRootID.mac_address[5]);
    mstp_util_set_cist_table_string(REGIONAL_ROOT,regionalRoot);
 
+   if(MAC_ADDRS_EQUAL(cistRootPriVec.rgnRootID.mac_address,
+               MSTP_CIST_BRIDGE_IDENTIFIER.mac_address))
+   {
+       mstp_util_set_cist_table_value(ROOT_PATH_COST, (int64_t)0);
+   }
+
    if (cistRootPortId != MSTP_CIST_ROOT_PORT_ID)
    {
       /* PortId "0" indicates the bridge is the root */
@@ -5439,6 +5443,8 @@ mstp_updtRolesCist(void)
    MSTP_CIST_ROOT_PORT_ID  = cistRootPortId;
    MSTP_CIST_ROOT_PRIORITY = cistRootPriVec;
    mstp_util_set_cist_table_value(ROOT_PRIORITY,MSTP_CIST_ROOT_PRIORITY.rootID.priority);
+   mstp_util_set_cist_table_value(CIST_PATH_COST, MSTP_CIST_ROOT_PRIORITY.extRootPathCost);
+   mstp_util_set_cist_table_value(ROOT_PATH_COST, MSTP_CIST_ROOT_PRIORITY.intRootPathCost);
 
    /*-------------------------------------------------------------------------
     * Calculate the Bridge's Root Times ('rootTimes') for the CIST.
@@ -5468,6 +5474,7 @@ mstp_updtRolesCist(void)
       mstp_util_set_cist_table_value(OPER_MAX_AGE, mstp_Bridge.MaxAge);
       mstp_util_set_cist_table_value(OPER_TX_HOLD_COUNT, mstp_Bridge.TxHoldCount);
       mstp_util_set_cist_table_value(ROOT_PATH_COST, (int64_t)0);
+      mstp_util_set_cist_table_value(CIST_PATH_COST, (int64_t)0);
       mstp_util_set_cist_table_string(ROOT_PORT,"0");
    }
    else

@@ -22,6 +22,7 @@ OpenSwitch test for MSTP CLI commands.
 from __future__ import unicode_literals, absolute_import
 from __future__ import print_function, division
 
+from pytest import mark
 import re
 import time
 # from time import sleep
@@ -233,6 +234,7 @@ def ops_get_system_mac_address(ops):
     return ops_mac
 
 
+@mark.gate
 def test_vtysh_ct_mstp(topology):
     """
     Test that a MSTP commands are working fine.

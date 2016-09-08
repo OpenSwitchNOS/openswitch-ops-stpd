@@ -43,6 +43,7 @@
 #include "vtysh/vtysh_ovsdb_config.h"
 #include "vtysh/utils/ovsdb_vtysh_utils.h"
 #include "mstp_vty.h"
+#include "mstp_mapping.h"
 #include "vtysh_ovsdb_mstp_context.h"
 #include "ops-utils.h"
 
@@ -54,6 +55,100 @@ extern struct ovsdb_idl *idl;
 const struct shash_node **sort_interface(const struct shash *sh);
 
 VLOG_DEFINE_THIS_MODULE(vtysh_mstp_cli);
+/* Function : check_internal_vlan
+ * Description : Checks if interface vlan is being created for
+ * an already used internal VLAN.
+ * param in : vlanid - to check if it is already in use
+ */
+static int
+check_internal_vlan(uint16_t vlanid)
+{
+    const struct ovsrec_vlan *vlan_row = NULL;
+    OVSREC_VLAN_FOR_EACH(vlan_row, idl)
+    {
+        if (smap_get(&vlan_row->internal_usage,
+                    VLAN_INTERNAL_USAGE_L3PORT))
+        {
+            VLOG_DBG("%s Used internally for l3 interface", __func__);
+            /* now check if this vlan is used for creating vlan interface */
+            if (vlanid == vlan_row->id) {
+                VLOG_DBG("%s This is a internal vlan = %d", __func__, vlanid);
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+/*-----------------------------------------------------------------------------
+ | Function:        mstp_validateStrVlanNumber
+ | Responsibility:  validates if VLAN number has all digits
+ | Parameters:
+ |      vlanStr:  VLAN ID entered by user
+ | Return:
+ ------------------------------------------------------------------------------
+ */
+bool
+mstp_validateStrVlanNumber(const char *vlanStr)
+{
+    bool allDigits = TRUE;
+    int   i, len;
+    if (!vlanStr)
+    {
+        return FALSE;
+    }
+
+    for(i=0,len=strlen(vlanStr); i < len; i++)
+    {
+        if(!isdigit((int)vlanStr[i]))
+        {
+            allDigits = FALSE;
+            break;
+        }
+    }
+    return allDigits;
+}
+
+
+/* Name:    mstpd_is_valid_port_row
+ *
+ * Purpose:  validates port row whether mstpd required or not
+ *
+ * Params:    none
+ *
+ * Returns:   none
+ */
+static bool
+mstp_is_valid_port_row(const struct ovsrec_port *prow)
+{
+    bool retval = false;
+    const struct ovsrec_interface *ifrow;
+
+    if(!prow) {
+        return retval;
+    }
+
+    if (!VERIFY_LAG_IFNAME(prow->name)) {
+        retval = true;
+    } else if (prow->n_interfaces == 1) {
+        ifrow = prow->interfaces[0];
+        if (!ifrow) {
+            retval = false;
+        } else {
+            if (strncmp(ifrow->type,OVSREC_INTERFACE_TYPE_SYSTEM,
+                        strlen(ifrow->type))!=0) {
+                retval = false;
+            } else {
+                retval = true;
+            }
+        }
+    } else {
+        retval = false;
+    }
+
+    return retval;
+}
+
+
 /* Function : check_internal_vlan
  * Description : Checks if interface vlan is being created for
  * an already used internal VLAN.
@@ -522,8 +617,9 @@ mstp_show_common_instance_info(
     const struct shash_node **cist_port_nodes = NULL;
     struct shash sorted_port_id;
     int64_t count = 0;
-    char root_mac[OPS_MAC_STR_SIZE] = {0};
-    int priority = 0, sys_id = 0;
+    char cist_root_mac[OPS_MAC_STR_SIZE] = {0};
+    char reg_root_mac[OPS_MAC_STR_SIZE] = {0};
+    int rr_priority = 0,r_priority = 0, sys_id = 0;
 
     system_row = ovsrec_system_first(idl);
     if (!system_row) {
@@ -540,17 +636,17 @@ mstp_show_common_instance_info(
             ((*cist_row->priority) * MSTP_BRIDGE_PRIORITY_MULTIPLIER),
             VTY_NEWLINE);
     if(cist_row->designated_root) {
-        memset(root_mac, 0, sizeof(root_mac));
-        sscanf(cist_row->designated_root, "%d.%d.%s", &priority, &sys_id, root_mac);
-        if (VTYSH_STR_EQ(system_row->system_mac, root_mac)) {
+        memset(cist_root_mac, 0, sizeof(cist_root_mac));
+        sscanf(cist_row->designated_root, "%d.%d.%s", &r_priority, &sys_id, cist_root_mac);
+        if (VTYSH_STR_EQ(system_row->system_mac, cist_root_mac)) {
             vty_out(vty, "%-14s%s", "Root", VTY_NEWLINE);
         }
     }
 
     if(cist_row->regional_root) {
-        memset(root_mac, 0, sizeof(root_mac));
-        sscanf(cist_row->regional_root, "%d.%d.%s", &priority, &sys_id, root_mac);
-        if (VTYSH_STR_EQ(system_row->system_mac, root_mac)) {
+        memset(reg_root_mac, 0, sizeof(reg_root_mac));
+        sscanf(cist_row->regional_root, "%d.%d.%s", &rr_priority, &sys_id, reg_root_mac);
+        if (VTYSH_STR_EQ(system_row->system_mac, reg_root_mac)) {
             vty_out(vty, "%-14s%s", "Regional Root", VTY_NEWLINE);
         }
     }
@@ -586,6 +682,22 @@ mstp_show_common_instance_info(
             (cist_row->root_path_cost)?*cist_row->root_path_cost:DEF_MSTP_COST,
             (cist_row->remaining_hops)?*cist_row->remaining_hops:(int64_t)0,
             VTY_NEWLINE);
+    vty_out(vty, "%-14s Address:%-18s Priority:%d%s", "Root",
+            cist_root_mac, r_priority/PRIORITY_MULTIPLIER, VTY_NEWLINE);
+
+    vty_out(vty, "%19s:%-20s  Path cost:%ld%s", "Port",
+            (cist_row->root_port)?cist_row->root_port:"0",
+            (cist_row->cist_path_cost)?*cist_row->cist_path_cost:DEF_MSTP_COST,
+            VTY_NEWLINE);
+
+    vty_out(vty, "%-14s Address:%-18s Priority:%d%s", "Regional Root",
+            reg_root_mac, rr_priority/PRIORITY_MULTIPLIER, VTY_NEWLINE);
+
+    vty_out(vty, "%28s:%-12ld Rem Hops:%ld%s", "Internal cost",
+            (cist_row->root_path_cost)?*cist_row->root_path_cost:DEF_MSTP_COST,
+            (cist_row->remaining_hops)?*cist_row->remaining_hops:(int64_t)0,
+            VTY_NEWLINE);
+
 
     vty_out(vty, "%s%-14s %-14s %-10s %-10s %-10s %s%s", VTY_NEWLINE,
             "Port", "Role", "State", "Cost", "Priority", "Type", VTY_NEWLINE);
@@ -1948,6 +2060,7 @@ mstp_cli_add_inst_vlan_map(const int64_t instid, const char *vlanid, struct ovsd
         free(vlans);
     }
     else {
+        uint64_t lport_count = 0;
         /* Create s MSTP instance row with the incoming data */
         mstp_row = ovsrec_mstp_instance_insert(txn);
         if (!mstp_row) {
@@ -1979,6 +2092,12 @@ mstp_cli_add_inst_vlan_map(const int64_t instid, const char *vlanid, struct ovsd
                 continue;
             }
 
+            if (!mstp_is_valid_port_row(bridge_row->ports[i]))
+            {
+                continue;
+            }
+            lport_count++;
+
             /* Create MSTI port table */
             mstp_inst_port_row = ovsrec_mstp_instance_port_insert(txn);
             if (!mstp_inst_port_row) {
@@ -2000,6 +2119,7 @@ mstp_cli_add_inst_vlan_map(const int64_t instid, const char *vlanid, struct ovsd
             }
             else
             {
+                port_priority = DEF_MSTP_PORT_PRIORITY;
                 ovsrec_mstp_instance_port_set_port_priority(mstp_inst_port_row,
                         &port_priority, 1 );
             }
@@ -2011,7 +2131,7 @@ mstp_cli_add_inst_vlan_map(const int64_t instid, const char *vlanid, struct ovsd
         }
 
         ovsrec_mstp_instance_set_mstp_instance_ports(mstp_row,
-                    mstp_inst_port_info, (bridge_row->n_ports - 1));
+                    mstp_inst_port_info, lport_count);
 
         /* Append the MSTP new instance to the existing list */
         mstp_info = xcalloc(bridge_row->n_mstp_instances + 1,
