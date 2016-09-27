@@ -43,6 +43,7 @@
 #include "vtysh/vtysh_ovsdb_config.h"
 #include "vtysh/utils/ovsdb_vtysh_utils.h"
 #include "mstp_vty.h"
+#include "mstp_mapping.h"
 #include "vtysh_ovsdb_mstp_context.h"
 #include "ops-utils.h"
 
@@ -563,8 +564,9 @@ mstp_show_common_instance_info(
     const struct shash_node **cist_port_nodes = NULL;
     struct shash sorted_port_id;
     int64_t count = 0;
-    char root_mac[OPS_MAC_STR_SIZE] = {0};
-    int priority = 0, sys_id = 0;
+    char cist_root_mac[OPS_MAC_STR_SIZE] = {0};
+    char reg_root_mac[OPS_MAC_STR_SIZE] = {0};
+    int rr_priority = 0,r_priority = 0, sys_id = 0;
 
     system_row = ovsrec_system_first(idl);
     if (!system_row) {
@@ -581,17 +583,17 @@ mstp_show_common_instance_info(
             ((*cist_row->priority) * MSTP_BRIDGE_PRIORITY_MULTIPLIER),
             VTY_NEWLINE);
     if(cist_row->designated_root) {
-        memset(root_mac, 0, sizeof(root_mac));
-        sscanf(cist_row->designated_root, "%d.%d.%s", &priority, &sys_id, root_mac);
-        if (VTYSH_STR_EQ(system_row->system_mac, root_mac)) {
+        memset(cist_root_mac, 0, sizeof(cist_root_mac));
+        sscanf(cist_row->designated_root, "%d.%d.%s", &r_priority, &sys_id, cist_root_mac);
+        if (VTYSH_STR_EQ(system_row->system_mac, cist_root_mac)) {
             vty_out(vty, "%-14s%s", "Root", VTY_NEWLINE);
         }
     }
 
     if(cist_row->regional_root) {
-        memset(root_mac, 0, sizeof(root_mac));
-        sscanf(cist_row->regional_root, "%d.%d.%s", &priority, &sys_id, root_mac);
-        if (VTYSH_STR_EQ(system_row->system_mac, root_mac)) {
+        memset(reg_root_mac, 0, sizeof(reg_root_mac));
+        sscanf(cist_row->regional_root, "%d.%d.%s", &rr_priority, &sys_id, reg_root_mac);
+        if (VTYSH_STR_EQ(system_row->system_mac, reg_root_mac)) {
             vty_out(vty, "%-14s%s", "Regional Root", VTY_NEWLINE);
         }
     }
@@ -617,16 +619,22 @@ mstp_show_common_instance_info(
             (cist_row->tx_hold_count)?*cist_row->tx_hold_count:DEF_HOLD_COUNT,
             VTY_NEWLINE);
 
-    vty_out(vty, "%-14s Address:%-20s Priority:%ld%s", "Root",
-            root_mac,
-            (cist_row->root_priority)?(*cist_row->root_priority):(DEF_BRIDGE_PRIORITY * MSTP_BRIDGE_PRIORITY_MULTIPLIER),
+    vty_out(vty, "%-14s Address:%-18s Priority:%d%s", "Root",
+            cist_root_mac, r_priority/PRIORITY_MULTIPLIER, VTY_NEWLINE);
+
+    vty_out(vty, "%19s:%-20s  Path cost:%ld%s", "Port",
+            (cist_row->root_port)?cist_row->root_port:"0",
+            (cist_row->cist_path_cost)?*cist_row->cist_path_cost:DEF_MSTP_COST,
             VTY_NEWLINE);
 
-    vty_out(vty, "%19s:%s, Cost:%ld, Rem Hops:%ld%s", "Port",
-            (cist_row->root_port)?cist_row->root_port:"0",
+    vty_out(vty, "%-14s Address:%-18s Priority:%d%s", "Regional Root",
+            reg_root_mac, rr_priority/PRIORITY_MULTIPLIER, VTY_NEWLINE);
+
+    vty_out(vty, "%28s:%-12ld Rem Hops:%ld%s", "Internal cost",
             (cist_row->root_path_cost)?*cist_row->root_path_cost:DEF_MSTP_COST,
             (cist_row->remaining_hops)?*cist_row->remaining_hops:(int64_t)0,
             VTY_NEWLINE);
+
 
     vty_out(vty, "%s%-14s %-14s %-10s %-10s %-10s %s%s", VTY_NEWLINE,
             "Port", "Role", "State", "Cost", "Priority", "Type", VTY_NEWLINE);
@@ -2048,6 +2056,7 @@ mstp_cli_add_inst_vlan_map(const int64_t instid, const char *vlanid, struct ovsd
             }
             else
             {
+                port_priority = DEF_MSTP_PORT_PRIORITY;
                 ovsrec_mstp_instance_port_set_port_priority(mstp_inst_port_row,
                         &port_priority, 1 );
             }
