@@ -70,15 +70,6 @@ pthread_mutex_t ovsdb_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define INTF_TO_MSTP_LINK_SPEED(s)    ((s)/MEGA_BITS_PER_SEC)
 #define VERIFY_LAG_IFNAME(s) strncasecmp(s, "lag", 3)
 
-/* NOTE: These  MSTP LAG IDs are only used for MSTP  state machine.
- *       They are not necessarily the same as h/w LAG ID. */
-#define MSTP_LAG_ID_IN_USE   1
-#define VALID_MSTP_LAG_ID(x) ((x)>=mstp_min_lag_id && (x)<=mstp_max_lag_id)
-
-const uint16_t mstp_min_lag_id = 1;
-uint16_t mstp_max_lag_id = 0; // This will be set in mstpd_init_lag_id_pool
-uint16_t *mstp_lag_id_pool = NULL;
-
 struct ovsdb_idl *idl;           /*!< Session handle for OVSDB IDL session. */
 static unsigned int idl_seqno;
 static int system_configured = false;
@@ -235,83 +226,6 @@ allocate_next(unsigned char *pool, int size)
 
     return -1;
 } /* allocate_next */
-
-int allocate_static_index(char *name)
-{
-    const struct ovsrec_interface *intf_row = NULL;
-    const char *intf_id = NULL;
-    int lport_id = 0;
-    OVSREC_INTERFACE_FOR_EACH(intf_row,idl)
-    {
-        if (intf_row && (strcmp(intf_row->name,name)== 0))
-        {
-            intf_id = smap_get(&intf_row->hw_intf_info,"switch_intf_id");
-            if (intf_id)
-            {
-                lport_id = atoi(intf_id);
-            }
-        }
-    }
-    return lport_id;
-}
-
-static void
-mstpd_init_lag_id_pool(uint16_t count)
-{
-    if (mstp_lag_id_pool == NULL) {
-        /* Track how many we're allocating. */
-        mstp_max_lag_id = count;
-
-        /* Allocate an extra one to skip LAG ID 0. */
-        mstp_lag_id_pool = (uint16_t *)xcalloc(count+1, sizeof(uint16_t));
-        VLOG_DBG("mstpd: allocated %d LAG IDs", count);
-    }
-} /* mstpd_init_lag_id_pool */
-
-static uint16_t
-mstpd_alloc_lag_id(void)
-{
-    if (mstp_lag_id_pool != NULL) {
-        uint16_t id;
-
-        for (id=mstp_min_lag_id; id<=mstp_max_lag_id; id++) {
-
-            if (mstp_lag_id_pool[id] == MSTP_LAG_ID_IN_USE) {
-                continue;
-            }
-
-            /* Found an available LAG_ID. */
-            mstp_lag_id_pool[id] = MSTP_LAG_ID_IN_USE;
-            return id;
-        }
-    } else {
-        VLOG_ERR("MSTP LAG ID pool not initialized!");
-    }
-
-    /* No free MSTP LAG ID available if we get here. */
-    return 0;
-
-} /* mstpd_alloc_lag_id */
-
-static void
-mstpd_free_lag_id(uint16_t id)
-{
-    if ((mstp_lag_id_pool != NULL) && VALID_MSTP_LAG_ID(id)) {
-        if (mstp_lag_id_pool[id] == MSTP_LAG_ID_IN_USE) {
-            mstp_lag_id_pool[id] = 0;
-        } else {
-            VLOG_ERR("Trying to free an unused MSTP LAGID (%d)!", id);
-        }
-    } else {
-        if (mstp_lag_id_pool == NULL) {
-            VLOG_ERR("Attempt to free MSTP LAG ID when"
-                     "pool is not initialized!");
-        } else {
-            VLOG_ERR("Attempt to free invalid MSTP LAG ID %d!", id);
-        }
-    }
-
-} /* mstpd_free_lag_id */
 
 /**PROC+**********************************************************************
  * Name:     allocate_reserved_id
@@ -592,9 +506,6 @@ mstpd_ovsdb_init(const char *db_path)
     ovsdb_idl_add_column(idl, &ovsrec_mstp_common_instance_port_col_oper_edge_port);
     ovsdb_idl_add_column(idl, &ovsrec_mstp_common_instance_port_col_restricted_port_role_disable);
     ovsdb_idl_add_column(idl, &ovsrec_mstp_common_instance_port_col_port_state);
-    /* Initialize MSTP LAG ID pool. */
-    /* OPS_TODO: read # of LAGs from somewhere? */
-    mstpd_init_lag_id_pool(128);
 } /* mstpd_ovsdb_init */
 
 /**PROC+****************************************************************
@@ -1053,11 +964,9 @@ del_old_interface(struct shash_node *sh_node)
     if (sh_node) {
         struct iface_data *idp = sh_node->data;
         if (idp) {
-            if (!VERIFY_LAG_IFNAME(idp->name)) {
-                mstpd_free_lag_id((idp->lport_id - MAX_PPORTS));
-            }
             deregister_stp_mcast_addr(idp->lport_id);
             free(idp->name);
+            free_index(port_index, idp->lport_id);
             idp_lookup[idp->lport_id] = NULL;
             free(idp);
             shash_delete(&all_interfaces, sh_node);
@@ -1090,8 +999,7 @@ add_new_interface(const struct ovsrec_interface *ifrow)
         idp->name = xstrdup(ifrow->name);
 
         /* Allocate interface index. */
-        idp->lport_id = allocate_static_index(ifrow->name);
-        //idp->lport_id = allocate_next(port_index, MAX_ENTRIES_IN_POOL);
+        idp->lport_id = allocate_next(port_index, MAX_ENTRIES_IN_POOL);
         if (idp->lport_id <= 0) {
             VLOG_ERR("Invalid interface index=%d", idp->lport_id);
         }
@@ -1151,9 +1059,8 @@ add_new_lag_interface(const struct ovsrec_port *prow)
         idp->name = xstrdup(prow->name);
 
         /* Allocate interface index. */
-        idp->lport_id = mstpd_alloc_lag_id() + MAX_PPORTS;
-        //idp->lport_id = allocate_next(port_index, MAX_ENTRIES_IN_POOL);
-        if (idp->lport_id <= 255) {
+        idp->lport_id = allocate_next(port_index, MAX_ENTRIES_IN_POOL);
+        if (idp->lport_id <= 0) {
             VLOG_ERR("Invalid interface index=%d", idp->lport_id);
             return;
         }
